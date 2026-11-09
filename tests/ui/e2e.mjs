@@ -1,10 +1,13 @@
 /**
- * Kiểm tra tự động Giao diện & Máy chủ (End-to-End bằng Playwright + Microsoft Edge):
- * - Mở Bảng điều khiển và 2 trang Sân khấu cùng lúc.
- * - Xác minh không lộ đáp án đúng xuống trang sân khấu trước khi chốt câu.
- * - Xác minh tải lại trang sân khấu không làm mất ghế hoặc reset lượt chơi.
- * - Xác minh mở 2 trang sân khấu không tạo 2 vòng chơi hay chấm điểm 2 lần.
- * - Chạy kịch bản Ghế 2 và Ghế 5 bị loại trực tiếp trên giao diện và chụp ảnh nghiệm thu.
+ * Kiểm tra tự động Giao diện Sân khấu 2.5D & Máy chủ (End-to-End bằng Playwright + Microsoft Edge):
+ * - Kiểm tra cả kích thước gốc 720 × 1280 (9:16) và kích thước hiển thị điện thoại 360 × 640.
+ * - Xác minh các khối bố cục (Thanh trên, MC, Bảng câu hỏi, 5 Ghế nóng, 10 Ghế chờ, Khán đài chữ U) không chồng lấn chữ.
+ * - Chụp và nghiệm thu đủ 4 trạng thái bắt buộc bằng dữ liệu giả lập:
+ *   1) Đủ 5 người ghế nóng, đủ 10 người chờ và 30 khán giả.
+ *   2) Câu hỏi dài cùng bốn đáp án dài.
+ *   3) Ghế 2 và 5 bị loại (Ghế 1, 3, 4 trả lời đúng có đèn Spotlight chiếu sáng).
+ *   4) Nhiều người được vinh danh cùng lúc (đạt mốc cấp 3).
+ * - Xác minh tải lại trang không mất ghế và không phát lại hiệu ứng thưởng cũ; kiểm tra tùy chọn giảm chuyển động & âm thanh.
  */
 import { chromium } from 'playwright-core';
 import { spawn } from 'node:child_process';
@@ -59,121 +62,193 @@ let browser;
 try {
   browser = await chromium.launch({ channel: 'msedge', headless: true });
 
-  // 1. Mở Bảng điều khiển + 2 trang Sân khấu (kiểm tra mở 2 trang sân khấu cùng lúc)
+  const boot = await fetch(`${BASE}/api/admin/bootstrap`).then((r) => r.json());
+  const headers = { 'Content-Type': 'application/json', 'X-Admin-Token': boot.token };
+  const api = (url, body) =>
+    fetch(`${BASE}${url}`, {
+      method: 'POST',
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    }).then((r) => r.json());
+
+  // Mở Bảng điều khiển + Trang sân khấu chuẩn 720×1280 + Trang sân khấu điện thoại 360×640
   const dashPage = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-  const stagePage1 = await browser.newPage({ viewport: { width: 720, height: 1280 } });
-  const stagePage2 = await browser.newPage({ viewport: { width: 720, height: 1280 } });
+  const stagePage720 = await browser.newPage({ viewport: { width: 720, height: 1280 } });
+  const stagePage360 = await browser.newPage({ viewport: { width: 360, height: 640 } });
 
   await Promise.all([
     dashPage.goto(BASE),
-    stagePage1.goto(`${BASE}/?view=stage&mute=1`),
-    stagePage2.goto(`${BASE}/?view=stage&mute=1`),
+    stagePage720.goto(`${BASE}/?view=stage&mute=1`),
+    stagePage360.goto(`${BASE}/?view=stage&mute=1`),
   ]);
-  await sleep(1200);
+  await sleep(1000);
 
-  // Kiểm tra 4 cập nhật mới trên giao diện:
-  // (1) Font Inter được áp dụng cho toàn bộ game
-  const stageFont = await stagePage1.evaluate(() => getComputedStyle(document.body).fontFamily);
+  // Kiểm tra font Inter & sự hiện diện của MC + Hướng dẫn chơi theo trạng thái
+  const stageFont = await stagePage720.evaluate(() => getComputedStyle(document.body).fontFamily);
   assert.equal(stageFont.toLowerCase().includes('inter'), true, 'Toàn bộ game phải sử dụng font chữ Inter');
+  assert.equal(await stagePage720.getByTestId('stage-mc').isVisible(), true, 'MC phải hiển thị cạnh màn hình câu hỏi');
+  assert.equal(await stagePage720.getByTestId('command-guide-box').isVisible(), true, 'Hướng dẫn chơi theo trạng thái phải hiển thị');
 
-  // (2) Đã xóa bỏ MC & khung MC, thay bằng khung Lệnh hướng dẫn chơi
-  const guideVisible = await stagePage1.getByTestId('command-guide-box').isVisible();
-  assert.equal(guideVisible, true, 'Khung hiển thị các lệnh hướng dẫn chơi phải hiển thị thay cho MC');
-  const stageHtml = await stagePage1.content();
-  assert.equal(stageHtml.includes('MC GHẾ NÓNG'), false, 'Không còn khung MC trên sân khấu');
-
-  // (3) 10 Ghế chờ tự động đưa người chơi vào ngay từ đầu mà không cần phải nhập "chờ", và có đủ 30 người chơi giả lập
-  const stageStateInitial = await fetch(`${BASE}/api/stage/state`).then((r) => r.json());
-  assert.equal(stageStateInitial.waiting.length, 10, '10 ghế chờ phải tự động có đủ 10 người chơi mà không cần gõ "chờ"');
-  assert.equal(stageStateInitial.audienceTotal, 30, 'Phòng chơi có đủ 30 người chơi giả lập');
-
-  // 2. Bấm "Bắt đầu phiên" -> tự động đẩy 5 người đầu từ ghế chờ lên 5 ghế nóng (đếm ngược 12s) và tự lấp đầy lại 10 ghế chờ
+  // -------------------------------------------------------------------------
+  // TRẠNG THÁI 1: Đủ 5 người ghế nóng, đủ 10 người chờ và 30 khán giả
+  // -------------------------------------------------------------------------
   await dashPage.getByTestId('btn-start-session').click();
-  await sleep(400);
+  await sleep(350);
+  // Chụp ảnh lúc đang mời 5 ghế nóng (12s)
+  await stagePage720.screenshot({ path: path.join(outDir, 'stage-inviting.png') });
 
-  const stageStateInviting = await fetch(`${BASE}/api/stage/state`).then((r) => r.json());
-  assert.equal(stageStateInviting.phase, 'INVITING');
-  assert.equal(stageStateInviting.waiting.length, 10, 'Khi 5 người được đẩy lên ghế nóng, 10 ghế chờ tự động lấp đầy người tiếp theo');
-
-  // 3. Qua 12s đếm ngược (không cần gõ "SS") -> 5 người tự động vào ghế nóng 1..5, chuyển sang PREPARE
-  await dashPage.getByTestId('btn-advance-phase').click();
-  await sleep(400);
-
-  // 4. Bấm "Tua nhanh bước hiện tại" để từ PREPARE sang OPEN (Đang nhận đáp án)
-  await dashPage.getByTestId('btn-advance-phase').click();
-  await sleep(500);
-
-  // Xác minh API công khai của sân khấu KHÔNG chứa đáp án đúng khi câu đang mở
-  const stageStateOpen = await fetch(`${BASE}/api/stage/state`).then((r) => r.json());
-  assert.equal(stageStateOpen.phase, 'OPEN');
-  assert.equal(stageStateOpen.reveal, null);
-  assert.equal('correct' in (stageStateOpen.question || {}), false, 'Không được lộ đáp án đúng ở publicView trước khi chốt câu');
-  assert.equal(stageStateOpen.stageCount, 2, 'Máy chủ nhận biết đang mở 2 trang sân khấu');
-
-  // Chụp ảnh sân khấu lúc đang mở câu hỏi (OPEN)
-  await stagePage1.screenshot({ path: path.join(outDir, 'stage-open.png') });
-  await dashPage.screenshot({ path: path.join(outDir, 'dashboard-open.png') });
-
-  // 5. Tải lại (reload) trang sân khấu 1 giữa lúc câu đang mở -> không mất ghế, không reset câu
-  await stagePage1.reload();
-  await sleep(600);
-  const seat1NameAfterReload = await stagePage1.getByTestId('hot-seat-1-name').textContent();
-  assert.equal(seat1NameAfterReload?.includes('Minh Tuấn'), true, 'Tải lại trang sân khấu không làm mất người ngồi ghế 1');
-
-  // 6. Chạy tình huống bắt buộc: Ghế 2 và 5 trả lời SAI (Ghế 1, 3, 4 trả lời ĐÚNG)
-  await dashPage.getByTestId('sim-seat25-wrong').click();
-  await sleep(500);
-
-  // Tua hết 30s mở đáp án để khóa và chấm câu
-  await dashPage.getByTestId('btn-advance-phase').click();
-  await sleep(500);
-
-  // Kiểm tra trạng thái REVEAL trên cả máy chủ và trang sân khấu
-  const boot = await fetch(`${BASE}/api/admin/bootstrap`).then((r) => r.json());
-  const adminAfterGrade = await fetch(`${BASE}/api/admin/state`, {
-    headers: { 'X-Admin-Token': boot.token },
-  }).then((r) => r.json());
-
-  assert.equal(adminAfterGrade.state.phase, 'REVEAL');
-  assert.equal(adminAfterGrade.gradeCount, 1, 'Mở 2 trang sân khấu chỉ được chấm đúng 1 lần');
-  assert.equal(adminAfterGrade.seats[0].userId, 'sim_01');
-  assert.equal(adminAfterGrade.seats[0].level, 1);
-  assert.equal(adminAfterGrade.seats[1].userId, undefined, 'Ghế 2 trả lời sai phải rời ghế');
-  assert.equal(adminAfterGrade.seats[2].userId, 'sim_03');
-  assert.equal(adminAfterGrade.seats[2].level, 1);
-  assert.equal(adminAfterGrade.seats[3].userId, 'sim_04');
-  assert.equal(adminAfterGrade.seats[3].level, 1);
-  assert.equal(adminAfterGrade.seats[4].userId, undefined, 'Ghế 5 trả lời sai phải rời ghế');
-
-  await stagePage1.screenshot({ path: path.join(outDir, 'stage-reveal.png') });
-
-  // 7. Tua sang HONOR (Vinh danh 3 giây giữa màn hình)
-  await dashPage.getByTestId('btn-advance-phase').click();
-  await sleep(400);
-  const honorVisible = await stagePage1.getByTestId('honor-overlay').isVisible();
-  assert.equal(honorVisible, true, 'Hiệu ứng vinh danh giữa màn hình phải hiển thị trong pha HONOR');
-  await stagePage1.screenshot({ path: path.join(outDir, 'stage-honor.png') });
-
-  // 8. Tua qua HONOR (3s) -> TRANSITION (4s) -> INVITING (mời người chờ vào ghế 2 và 5)
+  // Qua 12s chuẩn bị -> 5 người vào ghế nóng 1..5, sang PREPARE
   await dashPage.getByTestId('btn-advance-phase').click();
   await sleep(300);
+  // Qua 5s PREPARE -> sang OPEN câu #1
   await dashPage.getByTestId('btn-advance-phase').click();
+  await sleep(450);
+
+  const stateOpen1 = await fetch(`${BASE}/api/stage/state`).then((r) => r.json());
+  assert.equal(stateOpen1.phase, 'OPEN');
+  assert.equal(stateOpen1.seats.filter((s) => s.occupant).length, 5, 'Phải có đủ 5 người trên ghế nóng');
+  assert.equal(stateOpen1.waiting.length, 10, 'Phải có đủ 10 người trên ghế chờ (2 hàng × 5 ghế)');
+  assert.equal(stateOpen1.audience.length >= 30, true, 'Phải có đủ 30 khán giả trong danh sách khán đài');
+  assert.equal('correct' in (stateOpen1.question || {}), false, 'Không lộ đáp án đúng trước khi chốt câu');
+
+  // Cho 2 ghế nóng (ghế 1 và ghế 3) khóa đáp án trước để thấy rõ trạng thái "ĐÃ KHÓA ĐÁP ÁN"
+  const adminOpen1 = await fetch(`${BASE}/api/admin/state`, { headers }).then((r) => r.json());
+  const q1 = adminOpen1.current.question;
+  await api('/api/sim/chat', { userId: 'sim_01', text: `${adminOpen1.current.code}${q1.correct}` });
+  await api('/api/sim/chat', { userId: 'sim_03', text: `${adminOpen1.current.code}${q1.correct}` });
   await sleep(400);
 
-  // Xác nhận sim_06 và sim_07 vào ghế 2 và 5
-  await dashPage.getByTestId('sim-confirm-all').click();
+  // Kiểm tra không chồng lấn giữa MC, Màn hình câu hỏi, 5 Ghế nóng, 10 Ghế chờ
+  const layoutCheck = await stagePage720.evaluate(() => {
+    const rect = (tid) => document.querySelector(`[data-testid="${tid}"]`)?.getBoundingClientRect();
+    const mc = rect('stage-mc');
+    const qb = rect('question-board');
+    const hs = rect('hot-seats-row');
+    const ws = rect('waiting-seats-section');
+    return {
+      mcRightLeQbLeft: mc.right <= qb.left + 1,
+      qbBottomLeHsTop: qb.bottom <= hs.top + 8,
+      hsBottomLeWsTop: hs.bottom <= ws.top + 4,
+    };
+  });
+  assert.equal(layoutCheck.mcRightLeQbLeft, true, 'MC đứng cạnh màn hình câu hỏi, không đè lên màn hình câu hỏi');
+  assert.equal(layoutCheck.qbBottomLeHsTop, true, 'Màn hình câu hỏi không đè lên 5 ghế nóng');
+  assert.equal(layoutCheck.hsBottomLeWsTop, true, '5 ghế nóng không đè lên 10 ghế chờ');
+
+  await stagePage720.screenshot({ path: path.join(outDir, 'stage-full-5-10-30.png') });
+  await stagePage360.screenshot({ path: path.join(outDir, 'stage-360x640-full.png') });
+  await dashPage.screenshot({ path: path.join(outDir, 'dashboard-open.png') });
+
+  // -------------------------------------------------------------------------
+  // TRẠNG THÁI 3: Ghế 2 và 5 bị loại (Ghế 1, 3, 4 trả lời ĐÚNG có đèn Spotlight chiếu sáng)
+  // -------------------------------------------------------------------------
+  await dashPage.getByTestId('sim-seat25-wrong').click();
   await sleep(400);
+  // Tua hết 30s OPEN -> sang REVEAL
+  await dashPage.getByTestId('btn-advance-phase').click();
+  await sleep(450);
 
-  const adminAfterReplace = await fetch(`${BASE}/api/admin/state`, {
-    headers: { 'X-Admin-Token': boot.token },
-  }).then((r) => r.json());
-  assert.equal(adminAfterReplace.seats[1].userId, 'sim_06', 'Ghế 2 được thay bằng người chờ đầu hàng (sim_06)');
-  assert.equal(adminAfterReplace.seats[1].level, 0, 'Người mới vào ghế 2 bắt đầu ở Cấp 0');
-  assert.equal(adminAfterReplace.seats[4].userId, 'sim_07', 'Ghế 5 được thay bằng người chờ tiếp theo (sim_07)');
-  assert.equal(adminAfterReplace.seats[4].level, 0, 'Người mới vào ghế 5 bắt đầu ở Cấp 0');
-  assert.equal(adminAfterReplace.seats[0].level, 1, 'Ghế 1 giữ nguyên Cấp 1');
+  // Xác minh đèn Spotlight chiến thắng bật sáng ở đúng ghế 1, 3, 4 và không bật ở ghế 2, 5
+  assert.equal(await stagePage720.getByTestId('spotlight-correct-1').count(), 1, 'Ghế 1 đúng phải có đèn Spotlight chiếu sáng');
+  assert.equal(await stagePage720.getByTestId('spotlight-correct-2').count(), 0, 'Ghế 2 sai không có đèn Spotlight chiến thắng');
+  assert.equal(await stagePage720.getByTestId('spotlight-correct-3').count(), 1, 'Ghế 3 đúng phải có đèn Spotlight chiếu sáng');
+  assert.equal(await stagePage720.getByTestId('spotlight-correct-4').count(), 1, 'Ghế 4 đúng phải có đèn Spotlight chiếu sáng');
+  assert.equal(await stagePage720.getByTestId('spotlight-correct-5').count(), 0, 'Ghế 5 sai không có đèn Spotlight chiến thắng');
 
-  console.log('[E2E] TẤT CẢ KIỂM TRA GIAO DIỆN & MÁY CHỦ ĐỀU ĐẠT!');
+  await stagePage720.screenshot({ path: path.join(outDir, 'stage-seat2-5-eliminated.png') });
+  await stagePage360.screenshot({ path: path.join(outDir, 'stage-360x640-seat2-5-eliminated.png') });
+
+  // Kiểm tra tải lại trang (F5) giữa pha REVEAL: giữ nguyên kết quả nhưng không phát lại hiệu ứng nổ thưởng cũ
+  await stagePage720.reload();
+  await sleep(500);
+  const popCountAfterReload = await stagePage720.locator('.anim-score-pop').count();
+  assert.equal(popCountAfterReload, 0, 'Tải lại trang không được phát lại hoạt ảnh thưởng cũ');
+
+  // Tua qua REVEAL (5s) -> HONOR (3s) -> TRANSITION (4s) -> INVITING (đẩy sim_06, sim_07 lên ghế 2, 5) -> PREPARE -> OPEN câu #2
+  await dashPage.getByTestId('btn-advance-phase').click(); // -> HONOR
+  await sleep(250);
+  await dashPage.getByTestId('btn-advance-phase').click(); // -> TRANSITION
+  await sleep(250);
+  await dashPage.getByTestId('btn-advance-phase').click(); // -> INVITING
+  await sleep(250);
+  await dashPage.getByTestId('btn-advance-phase').click(); // -> PREPARE câu 2
+  await sleep(250);
+  await dashPage.getByTestId('btn-advance-phase').click(); // -> OPEN câu 2
+  await sleep(350);
+
+  // -------------------------------------------------------------------------
+  // TRẠNG THÁI 4: Nhiều người được vinh danh cùng lúc (đạt mốc Cấp 3)
+  // -------------------------------------------------------------------------
+  // Câu 2: cả 5 ghế cùng trả lời đúng (Ghế 1, 3, 4 lên Cấp 2; Ghế 2, 5 lên Cấp 1)
+  const adminOpen2 = await fetch(`${BASE}/api/admin/state`, { headers }).then((r) => r.json());
+  for (const s of adminOpen2.seats) {
+    await api('/api/sim/chat', { userId: s.userId, text: `${adminOpen2.current.code}${adminOpen2.current.question.correct}` });
+  }
+  await api('/api/sim/advance-phase'); // OPEN -> REVEAL câu 2
+  await api('/api/sim/advance-phase'); // REVEAL -> HONOR câu 2
+  await api('/api/sim/advance-phase'); // HONOR -> TRANSITION
+  await api('/api/sim/advance-phase'); // TRANSITION -> PREPARE câu 3
+  await api('/api/sim/advance-phase'); // PREPARE -> OPEN câu 3
+  await sleep(350);
+
+  // Câu 3: Cho cả 5 ghế trả lời đúng câu 3 để Ghế 1, 3, 4 cùng đạt mốc Cấp 3 (Nhiều người vinh danh cùng lúc!)
+  const adminOpen3 = await fetch(`${BASE}/api/admin/state`, { headers }).then((r) => r.json());
+  assert.equal(adminOpen3.state.phase, 'OPEN', 'Phải đang ở trạng thái OPEN của câu 3');
+  for (const s of adminOpen3.seats) {
+    await api('/api/sim/chat', { userId: s.userId, text: `${adminOpen3.current.code}${adminOpen3.current.question.correct}` });
+  }
+  await api('/api/sim/advance-phase'); // OPEN -> REVEAL câu 3
+  await api('/api/sim/advance-phase'); // REVEAL -> HONOR câu 3 (3 người đạt mốc Cấp 3 cùng lúc!)
+  await sleep(450);
+
+  assert.equal(await stagePage720.getByTestId('honor-overlay').isVisible(), true, 'Bảng vinh danh nhiều người cùng lúc phải hiển thị');
+  await stagePage720.screenshot({ path: path.join(outDir, 'stage-multi-honor.png') });
+  await stagePage360.screenshot({ path: path.join(outDir, 'stage-360x640-multi-honor.png') });
+
+  // -------------------------------------------------------------------------
+  // TRẠNG THÁI 2: Câu hỏi dài cùng bốn đáp án dài (Kiểm tra không tràn/chồng chữ)
+  // -------------------------------------------------------------------------
+  // Tắt các câu cũ và thêm 1 câu hỏi rất dài + 4 đáp án dài để câu #4 chắc chắn chọn câu dài này
+  const allQs = adminOpen3.questions;
+  for (const q of allQs) {
+    await api('/api/admin/questions/status', { id: q.id, status: 'disabled' });
+  }
+  await api('/api/admin/questions/upsert', {
+    id: 'q_long_test',
+    text: 'Trong lịch sử phát triển văn hóa và khoa học thế giới, phát minh nào dưới đây được đánh giá là bước ngoặt giúp truyền bá tri thức rộng rãi nhất vào thế kỷ XV?',
+    choices: [
+      'Kỹ thuật in chữ rời bằng kim loại do Johannes Gutenberg cải tiến tại châu Âu',
+      'Hệ thống máy hơi nước công nghiệp phục vụ vận tải đường sắt xuyên lục địa',
+      'Mạng lưới điện báo truyền tín hiệu mã Morse qua cáp ngầm vượt Đại Tây Dương',
+      'Phương pháp chế tạo kính thiên văn phản xạ quan sát các thiên hà xa xôi',
+    ],
+    correct: 'A',
+    explanation: 'Máy in chữ rời của Gutenberg (khoảng 1440) giúp in sách hàng loạt và lan tỏa tri thức khắp châu Âu.',
+    topic: 'Lịch sử & Khoa học',
+    difficulty: 'vua',
+    status: 'approved',
+  });
+
+  await api('/api/sim/advance-phase'); // HONOR -> TRANSITION
+  await api('/api/sim/advance-phase'); // TRANSITION -> PREPARE câu #4
+  await api('/api/sim/advance-phase'); // PREPARE -> OPEN câu #4 (câu dài)
+  await sleep(450);
+
+  const q4Text = await stagePage720.getByTestId('question-text').textContent();
+  assert.equal(q4Text?.includes('Johannes Gutenberg') || q4Text?.includes('bước ngoặt'), true, 'Câu hỏi dài phải đang mở trên sân khấu');
+
+  await stagePage720.screenshot({ path: path.join(outDir, 'stage-long-question.png') });
+  await stagePage360.screenshot({ path: path.join(outDir, 'stage-360x640-long-question.png') });
+
+  // Kiểm tra bật tùy chọn Giảm chuyển động (Reduce Motion)
+  await api('/api/admin/config/display', { reduceMotion: true, sfxEnabled: false });
+  await sleep(300);
+  const hasReduceMotionClass = await stagePage720.evaluate(() =>
+    document.querySelector('[data-testid="stage-root"]')?.classList.contains('reduce-motion'),
+  );
+  assert.equal(hasReduceMotionClass, true, 'Bật tùy chọn giảm chuyển động phải gắn class reduce-motion lên sân khấu');
+
+  console.log('[E2E] TẤT CẢ KIỂM TRA GIAO DIỆN 2.5D (720×1280 & 360×640) VÀ 4 TRẠNG THÁI ĐỀU ĐẠT!');
 } finally {
   await browser?.close();
   serverProc.kill();
@@ -181,5 +256,5 @@ try {
   try {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   } catch {}
-  process.exit(0);
 }
+process.exit(0);

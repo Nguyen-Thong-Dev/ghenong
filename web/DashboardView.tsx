@@ -77,7 +77,15 @@ interface AdminPayload {
     accepted?: boolean;
     message: string;
   }[];
-  display: { safeTop: number; safeBottom: number; safeLeft: number; safeRight: number; ttsEnabled: boolean };
+  display: {
+    safeTop: number;
+    safeBottom: number;
+    safeLeft: number;
+    safeRight: number;
+    ttsEnabled: boolean;
+    sfxEnabled?: boolean;
+    reduceMotion?: boolean;
+  };
   live: {
     isConnected: boolean;
     isConnecting: boolean;
@@ -731,19 +739,40 @@ export function DashboardView() {
               {/* Cột phải của tab Logs: Cấu hình vùng an toàn & Sao lưu */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
                 <div style={{ background: '#1e293b', borderRadius: 10, padding: 10 }}>
-                  <div style={{ fontWeight: 800, color: '#fbbf24', marginBottom: 6 }}>⚙️ Vùng an toàn TikTok & Âm thanh</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                  <div style={{ fontWeight: 800, color: '#fbbf24', marginBottom: 6 }}>
+                    ⚙️ Âm thanh, Giảm chuyển động & Vùng an toàn
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 6 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
                       <input
+                        data-testid="toggle-tts"
                         type="checkbox"
                         checked={admin.display.ttsEnabled}
                         onChange={(e) => callApi('/api/admin/config/display', { ttsEnabled: e.target.checked })}
                       />
-                      Bật giọng đọc MC (TTS)
+                      Giọng đọc MC (TTS)
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                      <input
+                        data-testid="toggle-sfx"
+                        type="checkbox"
+                        checked={admin.display.sfxEnabled !== false}
+                        onChange={(e) => callApi('/api/admin/config/display', { sfxEnabled: e.target.checked })}
+                      />
+                      Âm thanh hiệu ứng (SFX)
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                      <input
+                        data-testid="toggle-reduce-motion"
+                        type="checkbox"
+                        checked={Boolean(admin.display.reduceMotion)}
+                        onChange={(e) => callApi('/api/admin/config/display', { reduceMotion: e.target.checked })}
+                      />
+                      Giảm chuyển động
                     </label>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
                       <input type="checkbox" checked={showSafeGuide} onChange={(e) => setShowSafeGuide(e.target.checked)} />
-                      Hiện khung vùng an toàn
+                      Khung vùng an toàn
                     </label>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>

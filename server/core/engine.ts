@@ -1173,6 +1173,8 @@ export class GameEngine {
       if (patch[k] !== undefined) d[k] = Math.max(0, Math.min(400, Math.round(Number(patch[k]) || 0)));
     }
     if (typeof patch.ttsEnabled === 'boolean') d.ttsEnabled = patch.ttsEnabled;
+    if (typeof patch.sfxEnabled === 'boolean') d.sfxEnabled = patch.sfxEnabled;
+    if (typeof patch.reduceMotion === 'boolean') d.reduceMotion = patch.reduceMotion;
     this.display = d;
     this.store.setMeta('display', JSON.stringify(d));
     this.audit(actor, 'Đổi hiển thị', JSON.stringify(patch));
@@ -1261,7 +1263,7 @@ export class GameEngine {
   // ======================================================================
   // Khán đài: luân phiên ở ranh giới câu (§11)
   // ======================================================================
-  private rotateAudience() {
+  rotateAudience() {
     const s = this.state;
     const now = this.now();
     const busy = new Set<string>([
@@ -1317,6 +1319,7 @@ export class GameEngine {
               ...this.playerCard(t.userId),
               level: t.level,
               title: rankTitle(t.level),
+              points: s.scores[t.userId]?.sessionPoints ?? 0,
               answered: s.phase === 'OPEN' ? this.answers.has(t.userId) : undefined,
               result: res ? (res.correct ? 'correct' : res.answered ? 'wrong' : 'none') : undefined,
             }

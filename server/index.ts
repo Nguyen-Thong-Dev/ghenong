@@ -77,9 +77,9 @@ if (SIM_ENABLED) {
       }
     }
   });
-  if (engine.refillWaitingQueue()) {
-    store.saveSnapshot(engine.state);
-  }
+  engine.refillWaitingQueue();
+  engine.rotateAudience();
+  store.saveSnapshot(engine.state);
 }
 
 // Bộ kết nối TikTok LIVE

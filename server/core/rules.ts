@@ -78,14 +78,18 @@ export interface DisplayConfig {
   safeLeft: number;
   safeRight: number;
   ttsEnabled: boolean;
+  sfxEnabled: boolean;
+  reduceMotion: boolean;
 }
 
 export const DEFAULT_DISPLAY: DisplayConfig = {
-  safeTop: 96,
-  safeBottom: 150,
-  safeLeft: 16,
-  safeRight: 84,
+  safeTop: 28,
+  safeBottom: 28,
+  safeLeft: 14,
+  safeRight: 14,
   ttsEnabled: true,
+  sfxEnabled: true,
+  reduceMotion: false,
 };
 
 /** §19: luật ngắn hiện trong game */

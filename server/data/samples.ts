@@ -6,7 +6,7 @@ export interface SimProfile {
   avatar: string;
 }
 
-/** 30 người chơi giả lập với định danh tài khoản ổn định khác nhau */
+/** 45 người chơi giả lập (đủ để hiển thị đồng thời 5 ghế nóng + 10 ghế chờ + 30 khán giả ngồi khán đài chữ U) */
 export const SIM_PROFILES: SimProfile[] = [
   { userId: 'sim_01', nickname: 'Minh Tuấn', avatar: '' },
   { userId: 'sim_02', nickname: 'Lan Anh', avatar: '' },
@@ -38,6 +38,21 @@ export const SIM_PROFILES: SimProfile[] = [
   { userId: 'sim_28', nickname: 'Đình Trọng', avatar: '' },
   { userId: 'sim_29', nickname: 'Minh Hằng', avatar: '' },
   { userId: 'sim_30', nickname: 'Tuấn Anh', avatar: '' },
+  { userId: 'sim_31', nickname: 'Hoài Lâm', avatar: '' },
+  { userId: 'sim_32', nickname: 'Bảo Anh', avatar: '' },
+  { userId: 'sim_33', nickname: 'Trọng Hoàng', avatar: '' },
+  { userId: 'sim_34', nickname: 'Nhã Phương', avatar: '' },
+  { userId: 'sim_35', nickname: 'Văn Hậu', avatar: '' },
+  { userId: 'sim_36', nickname: 'Tóc Tiên', avatar: '' },
+  { userId: 'sim_37', nickname: 'Xuân Trường', avatar: '' },
+  { userId: 'sim_38', nickname: 'Hari Won', avatar: '' },
+  { userId: 'sim_39', nickname: 'Công Phượng', avatar: '' },
+  { userId: 'sim_40', nickname: 'Ninh Dương', avatar: '' },
+  { userId: 'sim_41', nickname: 'Hồng Duy', avatar: '' },
+  { userId: 'sim_42', nickname: 'Đông Nhi', avatar: '' },
+  { userId: 'sim_43', nickname: 'Đức Chinh', avatar: '' },
+  { userId: 'sim_44', nickname: 'Hòa Minzy', avatar: '' },
+  { userId: 'sim_45', nickname: 'Văn Thanh', avatar: '' },
 ];
 
 /**
