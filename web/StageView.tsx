@@ -70,7 +70,7 @@ const PHASE_LABELS: Record<string, string> = {
   STANDBY: 'MÀN HÌNH CHỜ',
   PAUSED: 'TẠM DỪNG',
   TRANSITION: 'CHUYỂN GHẾ',
-  INVITING: 'MỜI LÊN GHẾ NÓNG',
+  INVITING: 'ĐẨY LÊN GHẾ NÓNG (12S)',
   PREPARE: 'CHUẨN BỊ CÂU HỎI',
   OPEN: 'ĐANG NHẬN ĐÁP ÁN',
   REVEAL: 'CÔNG BỐ ĐÁP ÁN',
@@ -163,15 +163,7 @@ export function StageCanvas({
 }) {
   const [nowOffset, setNowOffset] = useState(0);
   const [tickNow, setTickNow] = useState(() => Date.now());
-  const [mcSpeaking, setMcSpeaking] = useState(false);
   const prevPhaseRef = useRef<string>('');
-
-  useEffect(() => {
-    stageVoice.onSpeakingChange = setMcSpeaking;
-    return () => {
-      stageVoice.onSpeakingChange = undefined;
-    };
-  }, []);
 
   useEffect(() => {
     if (!data) return;
@@ -392,57 +384,91 @@ export function StageCanvas({
           </div>
         </div>
 
-        {/* 2. KHU VỰC MC + MÀN HÌNH CÂU HỎI & 4 LỰA CHỌN A/B/C/D */}
+        {/* 2. KHUNG LỆNH HƯỚNG DẪN CHƠI + MÀN HÌNH CÂU HỎI & 4 LỰA CHỌN A/B/C/D */}
         <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, marginTop: 10, minHeight: 310 }}>
-          {/* Bục MC dẫn chương trình */}
+          {/* Khung hiển thị các lệnh hướng dẫn chơi (thay thế hoàn toàn MC & khung MC) */}
           <div
+            data-testid="command-guide-box"
             style={{
-              width: 118,
-              background: 'linear-gradient(180deg, rgba(30,41,59,0.92) 0%, rgba(15,23,42,0.96) 100%)',
-              border: '2px solid rgba(251, 191, 36, 0.55)',
+              width: 158,
+              background: 'linear-gradient(180deg, rgba(15,23,42,0.96) 0%, rgba(9,13,30,0.98) 100%)',
+              border: '2px solid rgba(56, 189, 248, 0.65)',
               borderRadius: 16,
-              padding: '8px 6px',
+              padding: '10px 8px',
               display: 'flex',
               flexDirection: 'column',
-              alignItems: 'center',
               justifyContent: 'space-between',
-              boxShadow: '0 10px 24px rgba(0,0,0,0.5)',
+              boxShadow: '0 10px 24px rgba(0,0,0,0.55)',
               flexShrink: 0,
             }}
           >
             <div
               style={{
-                fontSize: 11,
-                fontWeight: 800,
-                background: '#f59e0b',
+                fontSize: 11.5,
+                fontWeight: 900,
+                background: 'linear-gradient(90deg, #f59e0b, #fbbf24)',
                 color: '#0f172a',
-                padding: '2px 8px',
-                borderRadius: 99,
-              }}
-            >
-              🎤 MC GHẾ NÓNG
-            </div>
-            <div style={{ marginTop: 4 }}>
-              <Character25D pose="mc" size={76} speaking={mcSpeaking} />
-            </div>
-            <div
-              style={{
-                fontSize: 11,
-                lineHeight: 1.28,
-                color: '#fef3c7',
-                background: 'rgba(15,23,42,0.9)',
-                border: '1px solid rgba(251,191,36,0.35)',
-                borderRadius: 10,
-                padding: '5px 6px',
+                padding: '4px 8px',
+                borderRadius: 8,
                 textAlign: 'center',
-                width: '100%',
-                minHeight: 54,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
+                letterSpacing: 0.3,
               }}
             >
-              {data.mc?.text || 'Bình luận VÀO hoặc CHỜ để lên ghế nóng!'}
+              📋 LỆNH HƯỚNG DẪN
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6, flex: 1, justifyContent: 'center' }}>
+              {[
+                {
+                  cmd: data.question ? `${data.question.code}A / ${data.question.code}B` : '1A / 1B / 1C / 1D',
+                  desc: 'Trả lời câu hỏi (+10đ)',
+                  highlight: true,
+                },
+                {
+                  cmd: 'TỰ ĐỘNG',
+                  desc: 'Vào 10 ghế chờ & đẩy lên ghế nóng (12s)',
+                  highlight: false,
+                },
+                {
+                  cmd: 'VÀO / CHỜ',
+                  desc: 'Vào lại hàng ghế chờ',
+                  highlight: false,
+                },
+                {
+                  cmd: 'NHƯỜNG / HỦY',
+                  desc: 'Rời ghế nóng / hàng chờ',
+                  highlight: false,
+                },
+                {
+                  cmd: 'ĐIỂM / VỊ TRÍ',
+                  desc: 'Xem điểm & số ghế',
+                  highlight: false,
+                },
+              ].map((item, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    background: item.highlight ? 'rgba(251, 191, 36, 0.14)' : 'rgba(30, 41, 59, 0.85)',
+                    border: `1px solid ${item.highlight ? 'rgba(251, 191, 36, 0.55)' : 'rgba(71, 85, 105, 0.55)'}`,
+                    borderRadius: 9,
+                    padding: '4px 6px',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 11.5,
+                      fontWeight: 900,
+                      color: item.highlight ? '#fde047' : '#38bdf8',
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    {item.cmd}
+                  </div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#e2e8f0', lineHeight: 1.25, marginTop: 1 }}>
+                    {item.desc}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -630,7 +656,7 @@ export function StageCanvas({
               >
                 <div style={{ fontSize: 22, fontWeight: 900, color: '#fbbf24' }}>
                   {data.phase === 'INVITING'
-                    ? '🔔 ĐANG GỌI NGƯỜI CHỜ LÊN GHẾ NÓNG!'
+                    ? '🔔 ĐANG ĐẨY NGƯỜI CHỜ LÊN GHẾ NÓNG (12 GIÂY)!'
                     : data.phase === 'NO_QUESTIONS'
                       ? '☕ ĐÃ HẾT CÂU HỎI TRONG PHIÊN — TẠM NGHỈ'
                       : data.phase === 'PAUSED'
@@ -639,8 +665,8 @@ export function StageCanvas({
                 </div>
                 <div style={{ fontSize: 14.5, color: '#cbd5e1', marginTop: 8, maxWidth: 460, lineHeight: 1.4 }}>
                   {data.phase === 'INVITING'
-                    ? 'Những bạn đang được gọi tên hãy bình luận "SS" trong 12 giây để xác nhận vào ghế nóng!'
-                    : 'Bình luận VÀO để tham gia khán đài · Bình luận CHỜ để đăng ký xếp hàng lên 5 ghế nóng!'}
+                    ? 'Người chơi từ ghế chờ tự động lên ghế nóng sau 12 giây chuẩn bị (không cần gõ SS)!'
+                    : '10 ghế chờ tự động đón người chơi và đẩy lên 5 ghế nóng khi có ghế trống!'}
                 </div>
               </div>
             )}
@@ -774,7 +800,7 @@ export function StageCanvas({
                       borderRadius: 99,
                     }}
                   >
-                    Gõ SS ({invRemain}s)
+                    Lên ghế ({invRemain}s)
                   </span>
                 )}
               </div>
@@ -845,7 +871,7 @@ export function StageCanvas({
                     marginTop: 2,
                   }}
                 >
-                  {occ ? occ.name : inv ? `Mời: ${inv.name}` : dep ? `${dep.name} (rời)` : 'Đang trống'}
+                  {occ ? occ.name : inv ? `Lên: ${inv.name}` : dep ? `${dep.name} (rời)` : 'Đang trống'}
                 </div>
                 <div
                   data-testid={`hot-seat-${s.seat}-level`}
@@ -859,7 +885,7 @@ export function StageCanvas({
                     color: occ ? '#7dd3fc' : '#94a3b8',
                   }}
                 >
-                  {occ ? `Cấp ${occ.level} · ${occ.title}` : inv ? 'Chờ xác nhận SS' : 'Cấp —'}
+                  {occ ? `Cấp ${occ.level} · ${occ.title}` : inv ? `Tự vào (${invRemain}s)` : 'Cấp —'}
                 </div>
               </div>
             </div>
@@ -887,13 +913,13 @@ export function StageCanvas({
             padding: '0 6px',
           }}
         >
-          <span style={{ fontSize: 13, fontWeight: 900, color: '#38bdf8', letterSpacing: 0.5 }}>
-            ⏳ 10 GHẾ CHỜ LÊN SÂN ĐẤU (THEO THỨ TỰ ĐĂNG KÝ)
+          <span style={{ fontSize: 12.5, fontWeight: 900, color: '#38bdf8', letterSpacing: 0.3, whiteSpace: 'nowrap' }}>
+            ⏳ 10 GHẾ CHỜ TỰ ĐỘNG (TỰ ĐẨY LÊN GHẾ NÓNG)
           </span>
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#cbd5e1' }}>
+          <span style={{ fontSize: 11.5, fontWeight: 700, color: '#cbd5e1', whiteSpace: 'nowrap' }}>
             {data.registeredMore > 0
-              ? `+${data.registeredMore} bạn đã đăng ký đang ngồi khán đài`
-              : 'Gõ CHỜ để xếp hàng'}
+              ? `+${data.registeredMore} bạn đang đợi`
+              : 'Tự động vào ghế trống'}
           </span>
         </div>
 

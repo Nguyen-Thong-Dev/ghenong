@@ -63,21 +63,21 @@ function makeHarness(customQuestions?: Question[], dbFile = ':memory:', startClo
   return { engine, store, advance, chat, gift, getClock: () => clock, setClock: (v: number) => (clock = v) };
 }
 
-/** Đưa N người chơi vào ghế nóng từ đầu phiên và mở câu hỏi đầu tiên tới trạng thái OPEN */
+/** Đưa N người chơi vào ghế nóng từ đầu phiên (không cần gõ chờ hay ss, tự động qua 12s lên ghế) và mở câu hỏi đầu tiên tới trạng thái OPEN */
 function seatPlayersAndOpen(h: ReturnType<typeof makeHarness>, userIds: string[]) {
-  for (const id of userIds) h.chat(id, 'chờ');
+  for (const id of userIds) h.chat(id, 'vào');
   h.engine.startSession('test');
   assert.equal(h.engine.state.phase, 'INVITING');
-  for (const id of userIds.slice(0, 5)) h.chat(id, 'ss');
+  h.advance(12_000); // Hết 12s tự động lên ghế nóng mà không cần gõ SS
   assert.equal(h.engine.state.phase, 'PREPARE');
   h.advance(5_000); // hết PREPARE -> sang OPEN
   assert.equal(h.engine.state.phase, 'OPEN');
 }
 
-test('T01: Cùng tài khoản gửi "chờ" 20 lần — chỉ có 1 vị trí, không nhảy hàng', () => {
+test('T01: Tự động đưa người chơi vào 10 ghế chờ không cần gõ "chờ"; gửi trùng nhiều lần không nhảy hàng', () => {
   const h = makeHarness();
-  h.chat('sim_01', 'chờ');
-  h.chat('sim_02', 'chờ');
+  h.chat('sim_01', 'vào');
+  h.chat('sim_02', 'vào');
   for (let i = 0; i < 20; i++) {
     const r = h.chat('sim_01', 'CHO');
     assert.equal(r.accepted, false);
@@ -87,18 +87,19 @@ test('T01: Cùng tài khoản gửi "chờ" 20 lần — chỉ có 1 vị trí, 
   assert.equal(h.engine.state.queue[1].userId, 'sim_02');
 });
 
-test('T02: 5 người cùng gửi ss — mỗi người đúng ghế đã dành, không chiếm chéo', () => {
+test('T02: 5 người được chọn lên ghế nóng giữ đếm ngược 12s và tự động vào đúng ghế 1→5 mà không cần gõ SS', () => {
   const h = makeHarness();
   const ids = ['sim_01', 'sim_02', 'sim_03', 'sim_04', 'sim_05'];
-  for (const id of ids) h.chat(id, 'chờ');
+  for (const id of ids) h.chat(id, 'vào');
   h.engine.startSession('test');
   assert.equal(h.engine.state.phase, 'INVITING');
   assert.equal(h.engine.state.invites.length, 5);
-  // Gửi ss theo thứ tự đảo ngược
-  for (const id of [...ids].reverse()) {
-    const r = h.chat(id, 'sẵn sàng');
-    assert.equal(r.accepted, true);
-  }
+  // Sau 6 giây vẫn đang trong 12s đếm ngược chuẩn bị lên ghế
+  h.advance(6_000);
+  assert.equal(h.engine.state.phase, 'INVITING');
+  // Đủ 12 giây -> tự động vào ghế nóng 1..5 ở cấp 0 mà không cần gõ SS
+  h.advance(6_000);
+  assert.equal(h.engine.state.phase, 'PREPARE');
   for (let i = 0; i < 5; i++) {
     assert.equal(h.engine.state.seats[i]?.userId, ids[i], `Ghế ${i + 1} phải thuộc về ${ids[i]}`);
     assert.equal(h.engine.state.seats[i]?.level, 0);
@@ -203,34 +204,24 @@ test('T04: Cả 5 ghế cùng bị loại — xếp người thay đúng thứ t
   );
 });
 
-test('T05: Người được mời im lặng — hết 12 giây bỏ lời mời, tắt tự xếp lại, gọi đợt 2; tối đa 2 đợt không treo game', () => {
+test('T05: Người được chọn tự động lên ghế sau 12 giây không cần gõ SS; nếu chủ động gõ HỦY trong 12s thì tự đẩy người kế tiếp lên thay', () => {
   const h = makeHarness();
-  h.chat('sim_01', 'chờ');
-  h.chat('sim_02', 'chờ');
+  h.chat('sim_01', 'vào');
+  h.chat('sim_02', 'vào');
+  h.chat('sim_03', 'vào');
   h.engine.startSession('test');
   assert.equal(h.engine.state.phase, 'INVITING');
   assert.equal(h.engine.state.inviteWave, 1);
 
-  // sim_01 xác nhận, sim_02 im lặng
-  h.chat('sim_01', 'ss');
-  // Thêm sim_03 vào hàng chờ để đợt 2 có người gọi
-  h.chat('sim_03', 'chờ');
-  h.advance(12_000); // Hết 12s đợt 1
+  // sim_02 chủ động gõ HỦY trong lúc đếm ngược 12s; sim_01 và sim_03 không cần gõ SS
+  h.chat('sim_02', 'hủy');
+  h.advance(12_000); // Hết 12s đợt 1 -> sim_01 lên ghế 1, sim_03 lên ghế 3; ghế 2 trống nên tự động đẩy người tiếp theo nếu có
   assert.equal(h.engine.players.get('sim_02')?.autoRequeue, false);
   assert.equal(h.engine.statusOf('sim_02'), 'KHÁN GIẢ');
-
-  // Đợt 2 tự động gọi sim_03 vào ghế 2
-  assert.equal(h.engine.state.phase, 'INVITING');
-  assert.equal(h.engine.state.inviteWave, 2);
-  assert.equal(h.engine.state.invites[0]?.userId, 'sim_03');
-  assert.equal(h.engine.state.invites[0]?.seat, 2);
-
-  // sim_03 cũng im lặng -> hết 12s đợt 2 -> vào PREPARE câu hỏi mới, không mời đợt 3
-  h.chat('sim_04', 'chờ');
-  h.advance(12_000);
-  assert.equal(h.engine.state.phase, 'PREPARE');
   assert.equal(h.engine.state.seats[0]?.userId, 'sim_01');
   assert.equal(h.engine.state.seats[1], null);
+  assert.equal(h.engine.state.seats[2]?.userId, 'sim_03');
+  assert.equal(h.engine.state.phase, 'PREPARE');
 });
 
 test('T06 & T07: Đáp án sớm, muộn, sai mã, nhiều lựa chọn, bình luận trùng — chỉ khóa đáp án hợp lệ đầu tiên và tối đa +10 điểm', () => {
@@ -276,19 +267,22 @@ test('T06 & T07: Đáp án sớm, muộn, sai mã, nhiều lựa chọn, bình l
   assert.equal(h.engine.state.scores['sim_02']?.sessionPoints ?? 0, 0);
 });
 
-test('T08 & T16: Khán giả mới trả lời giữa câu & 100 tài khoản cùng trả lời — chấm đúng cả 100 người dù chỉ vẽ tối đa 40 khán giả', () => {
+test('T08 & T16: Khán giả mới trả lời giữa câu tự động lấp đầy 10 ghế chờ trống & 100 tài khoản cùng trả lời được chấm đúng cả 100 người', () => {
   const h = makeHarness();
   seatPlayersAndOpen(h, ['sim_01']);
   const cur = h.engine.state.current!;
   const q = h.engine.questionById(cur.questionId)!;
 
-  // 100 khán giả mới hoàn toàn gửi đáp án đúng
+  // 100 người mới hoàn toàn gửi đáp án đúng (10 người đầu tự động lấp đầy 10 ghế chờ mà không cần gõ "chờ")
   for (let i = 1; i <= 100; i++) {
     const uid = `aud_${i}`;
     const res = h.chat(uid, `${cur.code}${q.correct}`, `Khán giả ${i}`);
     assert.equal(res.accepted, true);
-    // Không tự động vào hàng chờ
-    assert.equal(h.engine.statusOf(uid), 'KHÁN GIẢ');
+    if (i <= 10) {
+      assert.equal(h.engine.statusOf(uid), 'GHẾ CHỜ');
+    } else {
+      assert.equal(h.engine.statusOf(uid), 'KHÁN GIẢ');
+    }
   }
   h.advance(30_000); // chấm câu
   for (let i = 1; i <= 100; i++) {

@@ -221,20 +221,18 @@ export function DashboardView() {
   const runScenarioQueue7 = async () => {
     for (let i = 1; i <= 7; i++) {
       const id = `sim_${String(i).padStart(2, '0')}`;
-      await sendSimChat(id, 'chờ');
+      await sendSimChat(id, 'vào');
     }
-    setFeedback('✅ Đã cho 7 người (sim_01..sim_07) gửi lệnh "chờ"');
+    setFeedback('✅ Đã đưa 7 người (sim_01..sim_07) vào hàng ghế chờ tự động');
   };
 
   const runScenarioConfirmAllInvites = async () => {
     if (!admin?.invites.length) {
-      setFeedback('⛔ Hiện không có lời mời nào đang mở');
+      setFeedback('⛔ Hiện không có ai đang trong 12 giây chuẩn bị lên ghế nóng');
       return;
     }
-    for (const inv of admin.invites) {
-      await sendSimChat(inv.userId, 'ss');
-    }
-    setFeedback('✅ Tất cả người được mời đã gửi lệnh "ss" xác nhận lên ghế!');
+    await callApi('/api/sim/advance-phase');
+    setFeedback('✅ Đã hoàn tất 12 giây chuẩn bị: tất cả người được chọn tự động lên ghế nóng (không cần gõ SS)!');
   };
 
   const runScenario30AudienceCorrect = async () => {
@@ -247,7 +245,7 @@ export function DashboardView() {
     for (let i = 1; i <= 30; i++) {
       await sendSimChat(`khach_${i}`, `${cur.code}${q.correct}`, { nickname: `Khán giả #${i}` });
     }
-    setFeedback('✅ 30 khán giả mới đã gửi đáp án đúng (được chấm +10đ mà không tự vào hàng chờ)');
+    setFeedback('✅ 30 khán giả mới đã gửi đáp án đúng (+10đ và tự động lấp vào ghế chờ nếu trống)');
   };
 
   if (!admin) {
@@ -483,10 +481,10 @@ export function DashboardView() {
             {/* Kịch bản nhanh 1 chạm */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #1e293b' }}>
               <Btn testId="sim-queue-7" tone="accent" onClick={runScenarioQueue7}>
-                ⚡ 1. Cho 7 người (sim_01..07) gửi "chờ"
+                ⚡ 1. Tự động đưa người chơi vào ghế chờ
               </Btn>
               <Btn testId="sim-confirm-all" tone="accent" onClick={runScenarioConfirmAllInvites}>
-                ✅ 2. Người được mời gửi "ss"
+                ✅ 2. Qua 12s tự động lên ghế nóng (không cần SS)
               </Btn>
               <Btn testId="sim-seat25-wrong" tone="primary" onClick={runScenarioSeat2And5Wrong}>
                 🎯 3. Ghế 2 & 5 trả lời SAI (Ghế 1, 3, 4 ĐÚNG)

@@ -48,27 +48,41 @@ if (store.loadQuestions().length === 0) {
 }
 
 const engine = new GameEngine({ store });
-// Nạp sẵn danh sách 24 hồ sơ giả lập vào bảng người chơi (với trạng thái KHÁN GIẢ) khi bật chế độ giả lập
-if (SIM_ENABLED && engine.players.size === 0) {
+// Nạp sẵn danh sách 24 hồ sơ giả lập và tự động điền vào 10 ghế chờ mà không cần gõ "chờ"
+if (SIM_ENABLED) {
   const now = Date.now();
-  store.tx(() => {
-    for (const p of SIM_PROFILES) {
-      const player = {
-        userId: p.userId,
-        nickname: p.nickname,
-        avatar: p.avatar,
-        createdAt: now,
-        autoRequeue: false,
-        locked: false,
-        bestLevelAll: 0,
-        badges: [],
-        totalPointsAll: 0,
-        lastActiveAt: now - 300_000,
-      };
-      engine.players.set(p.userId, player);
-      store.upsertPlayer(player);
-    }
-  });
+  if (engine.players.size === 0) {
+    store.tx(() => {
+      for (const p of SIM_PROFILES) {
+        const player = {
+          userId: p.userId,
+          nickname: p.nickname,
+          avatar: p.avatar,
+          createdAt: now,
+          autoRequeue: true,
+          locked: false,
+          bestLevelAll: 0,
+          badges: [],
+          totalPointsAll: 0,
+          lastActiveAt: now,
+        };
+        engine.players.set(p.userId, player);
+        store.upsertPlayer(player);
+      }
+    });
+  } else if (!engine.state.session && engine.state.queue.length === 0) {
+    store.tx(() => {
+      for (const p of engine.players.values()) {
+        if (!p.locked && !p.autoRequeue) {
+          p.autoRequeue = true;
+          store.upsertPlayer(p);
+        }
+      }
+    });
+  }
+  if (engine.refillWaitingQueue()) {
+    store.saveSnapshot(engine.state);
+  }
 }
 
 // Bộ kết nối TikTok LIVE
@@ -357,7 +371,7 @@ if (SIM_ENABLED) {
       for (const inv of s.invites) inv.expiresAt = now - 1;
       engine.tick();
       broadcastAll();
-      return res.json({ accepted: true, reason: 'Đã kết thúc thời gian chờ xác nhận lời mời', phase: engine.state.phase });
+      return res.json({ accepted: true, reason: 'Đã hoàn tất 12 giây chuẩn bị: người chơi tự động lên ghế nóng', phase: engine.state.phase });
     }
     if (s.phaseEndsAt != null) {
       s.phaseEndsAt = now - 1;

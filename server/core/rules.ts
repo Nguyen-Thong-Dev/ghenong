@@ -90,4 +90,4 @@ export const DEFAULT_DISPLAY: DisplayConfig = {
 
 /** §19: luật ngắn hiện trong game */
 export const SHORT_RULES =
-  'Bình luận VÀO để tham gia, CHỜ để đăng ký lên ghế. Cả phòng cùng trả lời theo mã câu, ví dụ 23B. Đáp án hợp lệ đầu tiên được chốt. Đúng +10 điểm; ở ghế nóng còn tăng 1 cấp. Sai hoặc hết giờ phải nhường ghế. Người chờ lên theo thứ tự và xác nhận SS khi được gọi. Tặng quà không thay đổi kết quả.';
+  'Người chơi tự động vào 10 ghế chờ và tự đẩy lên 5 ghế nóng khi có ghế trống (đếm ngược 12s, không cần gõ CHỜ hay SS). Trả lời theo mã câu (ví dụ 1A, 1B). Đúng +10đ, ghế nóng tăng 1 cấp; sai hoặc hết giờ nhường ghế.';

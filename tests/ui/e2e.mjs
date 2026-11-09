@@ -70,14 +70,31 @@ try {
   ]);
   await sleep(1200);
 
-  // 2. Bấm nút "Cho 7 người (sim_01..07) gửi chờ" và "Bắt đầu phiên"
-  await dashPage.getByTestId('sim-queue-7').click();
-  await sleep(400);
+  // Kiểm tra 4 cập nhật mới trên giao diện:
+  // (1) Font Inter được áp dụng cho toàn bộ game
+  const stageFont = await stagePage1.evaluate(() => getComputedStyle(document.body).fontFamily);
+  assert.equal(stageFont.toLowerCase().includes('inter'), true, 'Toàn bộ game phải sử dụng font chữ Inter');
+
+  // (2) Đã xóa bỏ MC & khung MC, thay bằng khung Lệnh hướng dẫn chơi
+  const guideVisible = await stagePage1.getByTestId('command-guide-box').isVisible();
+  assert.equal(guideVisible, true, 'Khung hiển thị các lệnh hướng dẫn chơi phải hiển thị thay cho MC');
+  const stageHtml = await stagePage1.content();
+  assert.equal(stageHtml.includes('MC GHẾ NÓNG'), false, 'Không còn khung MC trên sân khấu');
+
+  // (3) 10 Ghế chờ tự động đưa người chơi vào ngay từ đầu mà không cần phải nhập "chờ"
+  const stageStateInitial = await fetch(`${BASE}/api/stage/state`).then((r) => r.json());
+  assert.equal(stageStateInitial.waiting.length, 10, '10 ghế chờ phải tự động có đủ 10 người chơi mà không cần gõ "chờ"');
+
+  // 2. Bấm "Bắt đầu phiên" -> tự động đẩy 5 người đầu từ ghế chờ lên 5 ghế nóng (đếm ngược 12s) và tự lấp đầy lại 10 ghế chờ
   await dashPage.getByTestId('btn-start-session').click();
   await sleep(400);
 
-  // 3. Bấm "Người được mời gửi ss" -> 5 người đầu vào ghế 1..5, chuyển sang PREPARE
-  await dashPage.getByTestId('sim-confirm-all').click();
+  const stageStateInviting = await fetch(`${BASE}/api/stage/state`).then((r) => r.json());
+  assert.equal(stageStateInviting.phase, 'INVITING');
+  assert.equal(stageStateInviting.waiting.length, 10, 'Khi 5 người được đẩy lên ghế nóng, 10 ghế chờ tự động lấp đầy người tiếp theo');
+
+  // 3. Qua 12s đếm ngược (không cần gõ "SS") -> 5 người tự động vào ghế nóng 1..5, chuyển sang PREPARE
+  await dashPage.getByTestId('btn-advance-phase').click();
   await sleep(400);
 
   // 4. Bấm "Tua nhanh bước hiện tại" để từ PREPARE sang OPEN (Đang nhận đáp án)

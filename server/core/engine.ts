@@ -216,7 +216,7 @@ export class GameEngine {
         nickname,
         avatar: ev.avatar ?? '',
         createdAt: ev.receivedAt,
-        autoRequeue: false,
+        autoRequeue: true,
         locked: false,
         bestLevelAll: 0,
         badges: [],
@@ -270,6 +270,58 @@ export class GameEngine {
     if (!t) return;
     this.state.seats[idx] = null;
     this.state.departed[idx] = { userId: t.userId, nickname: this.nameOf(t.userId), reason };
+  }
+
+  /**
+   * Tự động đưa người chơi hợp lệ vào 10 ghế chờ mà không cần gõ "chờ".
+   * Khi ghế chờ (< 10) còn trống, tự động lấy người chơi đang có autoRequeue = true và chưa có vị trí đẩy vào hàng chờ.
+   */
+  refillWaitingQueue(): boolean {
+    const busy = new Set<string>([
+      ...this.state.seats.filter(Boolean).map((t) => t!.userId),
+      ...this.state.invites.map((i) => i.userId),
+      ...this.state.queue.map((q) => q.userId),
+    ]);
+    let added = false;
+    for (const p of this.players.values()) {
+      if (this.state.queue.length >= this.rules.waitingSeats) break;
+      if (!p.locked && p.autoRequeue && !busy.has(p.userId)) {
+        this.state.queue.push({ ticket: this.state.nextTicket++, userId: p.userId });
+        busy.add(p.userId);
+        added = true;
+      }
+    }
+    return added;
+  }
+
+  /** Đưa người được chọn vào ghế nóng (tự động sau 12s hoặc khi gõ SS sớm) */
+  private seatInvitedPlayer(inv: { seat: number; userId: string; expiresAt: number; wave: number }, now: number, mode: 'auto' | 'manual'): boolean {
+    const idx = inv.seat - 1;
+    this.state.invites = this.state.invites.filter((i) => i !== inv);
+    if (this.state.seats[idx]) return false;
+    const p = this.players.get(inv.userId);
+    const name = p?.nickname ?? 'Người chơi';
+    this.state.seats[idx] = {
+      tenureId: `${inv.userId}@${now}`,
+      userId: inv.userId,
+      seat: inv.seat,
+      level: 0,
+      startedAt: now,
+      recordAtStart: p?.bestLevelAll ?? 0,
+      recordBrokenAnnounced: false,
+    };
+    this.state.departed[idx] = null;
+    this.notice(`🔥 ${shortName(name, 18)} lên ghế ${inv.seat}`, 'system');
+    this.addLog({
+      kind: 'system',
+      userId: inv.userId,
+      nickname: name,
+      message:
+        mode === 'auto'
+          ? `Hoàn tất ${this.rules.inviteConfirmMs / 1000} giây: tự động lên ghế nóng số ${inv.seat}, cấp khởi đầu 0`
+          : `Đã xác nhận lên ghế nóng số ${inv.seat}, cấp khởi đầu 0`,
+    });
+    return true;
   }
 
   // ======================================================================
@@ -335,6 +387,9 @@ export class GameEngine {
     }
     if (out.accepted) {
       this.state.lastInteractionAt = ev.receivedAt;
+      if (cmd.kind !== 'huy' && cmd.kind !== 'nhuong') {
+        this.refillWaitingQueue();
+      }
       if (this.state.undo && !opts.replay && REPLAY_KINDS.has(cmd.kind)) this.state.undo.replay.push(ev);
       if (this.state.phase === 'STANDBY') {
         this.sys('Có tương tác mới: đánh thức game');
@@ -365,14 +420,26 @@ export class GameEngine {
   }
 
   private cmdVao(p: Player): CommandOutcome {
-    return { accepted: true, reason: 'Đã có hồ sơ khán giả (không tự đăng ký ghế). Gõ CHỜ để xếp hàng' };
+    if (!p.autoRequeue) {
+      p.autoRequeue = true;
+      this.dirtyPlayers.add(p.userId);
+    }
+    if (this.seatOf(p.userId) < 0 && !this.inviteOf(p.userId) && this.queueIndex(p.userId) < 0) {
+      this.state.queue.push({ ticket: this.state.nextTicket++, userId: p.userId });
+      const pos = this.state.queue.length;
+      return {
+        accepted: true,
+        reason: `Đã tham gia và tự động vào hàng ghế chờ (thứ tự #${pos})`,
+      };
+    }
+    return { accepted: true, reason: 'Đã tham gia phòng chơi (đang có vị trí trên sân/hàng chờ)' };
   }
 
   private cmdCho(p: Player): CommandOutcome {
     const s = this.seatOf(p.userId);
     if (s >= 0) return { accepted: false, reason: `Đang ở ghế nóng số ${s + 1}, không cần đăng ký` };
     const inv = this.inviteOf(p.userId);
-    if (inv) return { accepted: false, reason: `Đang được mời lên ghế ${inv.seat}: gõ SS để xác nhận` };
+    if (inv) return { accepted: false, reason: `Đang được chọn lên ghế ${inv.seat} (tự động vào ghế sau 12s)` };
     const qi = this.queueIndex(p.userId);
     if (qi >= 0) return { accepted: false, reason: `Đã có số thứ tự ${qi + 1}; gửi lại "chờ" không đổi thứ tự` };
     this.state.queue.push({ ticket: this.state.nextTicket++, userId: p.userId });
@@ -381,7 +448,7 @@ export class GameEngine {
       this.dirtyPlayers.add(p.userId);
     }
     const pos = this.state.queue.length;
-    return { accepted: true, reason: `Đã đăng ký, thứ tự ${pos}${pos <= this.rules.waitingSeats ? ' (ghế chờ)' : ' (ngồi khán đài chờ tới lượt)'}; bật tự xếp lại` };
+    return { accepted: true, reason: `Đã vào hàng chờ, thứ tự ${pos}${pos <= this.rules.waitingSeats ? ' (ghế chờ)' : ' (ngồi khán đài chờ tới lượt)'}; bật tự xếp lại` };
   }
 
   private cmdHuy(p: Player): CommandOutcome {
@@ -394,7 +461,7 @@ export class GameEngine {
     const inv = this.inviteOf(p.userId);
     if (inv) {
       this.state.invites = this.state.invites.filter((i) => i !== inv);
-      parts.push(`hủy lời mời ghế ${inv.seat}`);
+      parts.push(`hủy lên ghế ${inv.seat}`);
     }
     const wasAuto = p.autoRequeue;
     if (p.autoRequeue) {
@@ -404,32 +471,21 @@ export class GameEngine {
     const s = this.seatOf(p.userId);
     if (s >= 0) parts.push(`tắt tự xếp lại, vẫn giữ ghế ${s + 1} tới khi nhường/rớt`);
     else if (wasAuto || parts.length) parts.push('tắt tự xếp lại');
-    if (!parts.length) return { accepted: false, reason: 'Chưa đăng ký nên không có gì để hủy' };
+    if (!parts.length) return { accepted: false, reason: 'Chưa trong hàng chờ nên không có gì để hủy' };
+    this.refillWaitingQueue();
     if (inv && this.state.phase === 'INVITING' && this.state.invites.length === 0) this.endWave();
     return { accepted: true, reason: 'Đã ' + parts.join(', ') };
   }
 
   private cmdSs(p: Player): CommandOutcome {
     const inv = this.inviteOf(p.userId);
-    if (!inv) return { accepted: false, reason: '"ss" chỉ có hiệu lực khi đang được mời lên ghế' };
+    if (!inv) return { accepted: false, reason: 'Chỉ dùng khi đang trong 12 giây chuẩn bị lên ghế nóng' };
     const now = this.now();
-    if (this.state.phase === 'INVITING' && now >= inv.expiresAt) return { accepted: false, reason: 'Lời mời đã hết hạn' };
     const idx = inv.seat - 1;
-    if (this.state.seats[idx]) return { accepted: false, reason: `Ghế ${inv.seat} đã có người (lỗi trạng thái), bỏ qua` };
-    this.state.invites = this.state.invites.filter((i) => i !== inv);
-    this.state.seats[idx] = {
-      tenureId: `${p.userId}@${now}`,
-      userId: p.userId,
-      seat: inv.seat,
-      level: 0,
-      startedAt: now,
-      recordAtStart: p.bestLevelAll,
-      recordBrokenAnnounced: false,
-    };
-    this.state.departed[idx] = null;
-    this.notice(`🔥 ${shortName(p.nickname, 18)} lên ghế ${inv.seat}`, 'system');
+    if (this.state.seats[idx]) return { accepted: false, reason: `Ghế ${inv.seat} đã có người, bỏ qua` };
+    this.seatInvitedPlayer(inv, now, 'manual');
     if (this.state.phase === 'INVITING' && this.state.invites.length === 0) this.endWave();
-    return { accepted: true, reason: `Đã xác nhận, vào ghế nóng số ${inv.seat}, cấp khởi đầu 0` };
+    return { accepted: true, reason: `Đã vào ghế nóng số ${inv.seat}, cấp khởi đầu 0` };
   }
 
   private cmdNhuong(p: Player): CommandOutcome {
@@ -537,18 +593,11 @@ export class GameEngine {
     if (this.notices.length + this.noticeQueue.length !== before) dirty = true;
 
     if (s.phase === 'INVITING') {
-      const expired = s.invites.filter((i) => now >= i.expiresAt);
-      for (const inv of expired) {
-        s.invites = s.invites.filter((i) => i !== inv);
-        const p = this.players.get(inv.userId);
-        // §4.5: không xác nhận -> hủy đăng ký, tắt tự xếp lại, về khán đài
-        if (p && p.autoRequeue) {
-          p.autoRequeue = false;
-          this.dirtyPlayers.add(p.userId);
-        }
-        this.addLog({ kind: 'system', userId: inv.userId, nickname: p?.nickname, message: `Hết ${this.rules.inviteConfirmMs / 1000} giây không xác nhận ghế ${inv.seat}: hủy đăng ký, tắt tự xếp lại` });
+      const ready = s.invites.filter((i) => now >= i.expiresAt);
+      for (const inv of ready) {
+        this.seatInvitedPlayer(inv, now, 'auto');
       }
-      if (expired.length) {
+      if (ready.length) {
         if (s.invites.length === 0) this.endWave();
         else this.commit();
         return;
@@ -603,6 +652,7 @@ export class GameEngine {
       s.pauseBeforeNext = null;
       return this.pauseInternal(why, 'system', true);
     }
+    this.refillWaitingQueue();
     this.rotateAudience();
     this.startWave(1);
   }
@@ -610,6 +660,7 @@ export class GameEngine {
   private startWave(n: number) {
     const s = this.state;
     const now = this.now();
+    this.refillWaitingQueue();
     const empty = s.seats.map((t, i) => (t ? -1 : i)).filter((i) => i >= 0);
     if (n > this.rules.maxInviteWaves || empty.length === 0 || s.queue.length === 0) return this.afterSeating();
     s.inviteWave = n;
@@ -619,10 +670,17 @@ export class GameEngine {
       if (!entry) break;
       s.invites.push({ seat: idx + 1, userId: entry.userId, expiresAt: now + this.rules.inviteConfirmMs, wave: n });
       names.push(`${speakableName(this.nameOf(entry.userId))} ghế ${idx + 1}`);
-      this.addLog({ kind: 'system', userId: entry.userId, nickname: this.nameOf(entry.userId), message: `Đợt mời ${n}: dành ghế ${idx + 1}, chờ "ss" trong ${this.rules.inviteConfirmMs / 1000} giây` });
+      this.addLog({
+        kind: 'system',
+        userId: entry.userId,
+        nickname: this.nameOf(entry.userId),
+        message: `Đợt ${n}: tự động chọn lên ghế nóng ${idx + 1} (đếm ngược ${this.rules.inviteConfirmMs / 1000} giây, không cần gõ SS)`,
+      });
     }
+    this.refillWaitingQueue();
+    this.rotateAudience();
     this.setPhase('INVITING', this.rules.inviteConfirmMs);
-    this.say(`Mời ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` và ${names.length - 3} bạn nữa` : ''}. Gõ S S để lên ghế.`);
+    this.say(`Mời ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` và ${names.length - 3} bạn nữa` : ''} chuẩn bị lên ghế nóng sau 12 giây.`);
     this.commit();
   }
 
@@ -836,6 +894,7 @@ export class GameEngine {
 
     // 3) Người sai có tự xếp lại: thêm cuối hàng theo số ghế tăng dần, sau mọi người đã đăng ký trước lúc chấm
     for (const userId of wrongRequeue) s.queue.push({ ticket: s.nextTicket++, userId });
+    this.refillWaitingQueue();
 
     const result: QuestionResult = {
       runId: cur.runId,
@@ -897,20 +956,14 @@ export class GameEngine {
     const keepHealth = s.sourceHealthy;
     const preQueue = s.queue;
     const preNextTicket = s.nextTicket;
-    const queuedSet = new Set(preQueue.map((q) => q.userId));
     this.state = this.initialState();
     this.state.sourceHealthy = keepHealth;
     this.state.queue = preQueue;
     this.state.nextTicket = preNextTicket;
     this.state.session = { id, startedAt: now, round: 1, roundActiveMs: 0, nextCode: 1, endRequested: false };
     this.answers.clear();
-    // §9: phiên mới bắt đầu cấp 0; giữ đăng ký của những người đã xếp hàng chờ mở phiên
-    for (const p of this.players.values()) {
-      if (p.autoRequeue && !queuedSet.has(p.userId)) {
-        p.autoRequeue = false;
-        this.dirtyPlayers.add(p.userId);
-      }
-    }
+    // Tự động lấp đầy 10 ghế chờ từ danh sách người chơi hợp lệ mà không cần gõ "chờ"
+    this.refillWaitingQueue();
     this.store.tx(() => this.store.insertSession(id, now));
     this.audit(actor, 'Bắt đầu phiên', id);
     this.beginBoundary();
