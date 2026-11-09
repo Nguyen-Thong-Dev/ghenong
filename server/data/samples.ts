@@ -6,7 +6,7 @@ export interface SimProfile {
   avatar: string;
 }
 
-/** 24 người chơi giả lập với định danh tài khoản ổn định khác nhau */
+/** 30 người chơi giả lập với định danh tài khoản ổn định khác nhau */
 export const SIM_PROFILES: SimProfile[] = [
   { userId: 'sim_01', nickname: 'Minh Tuấn', avatar: '' },
   { userId: 'sim_02', nickname: 'Lan Anh', avatar: '' },
@@ -32,6 +32,12 @@ export const SIM_PROFILES: SimProfile[] = [
   { userId: 'sim_22', nickname: 'Bích Phương', avatar: '' },
   { userId: 'sim_23', nickname: 'Thành Chung', avatar: '' },
   { userId: 'sim_24', nickname: 'Diệu Nhi', avatar: '' },
+  { userId: 'sim_25', nickname: 'Hải Đăng', avatar: '' },
+  { userId: 'sim_26', nickname: 'Trúc Nhân', avatar: '' },
+  { userId: 'sim_27', nickname: 'Khả Ngân', avatar: '' },
+  { userId: 'sim_28', nickname: 'Đình Trọng', avatar: '' },
+  { userId: 'sim_29', nickname: 'Minh Hằng', avatar: '' },
+  { userId: 'sim_30', nickname: 'Tuấn Anh', avatar: '' },
 ];
 
 /**

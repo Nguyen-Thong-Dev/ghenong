@@ -16,6 +16,7 @@ import { GameEngine } from './core/engine';
 import { SAMPLE_QUESTIONS, SIM_PROFILES } from './data/samples';
 import { TikTokBridge } from './tiktok/connector';
 import { synthesizeSpeech } from './tts/service';
+import { AutoSimController } from './sim/autoBot';
 import type { InboundEvent } from './core/types';
 
 dotenv.config();
@@ -48,12 +49,13 @@ if (store.loadQuestions().length === 0) {
 }
 
 const engine = new GameEngine({ store });
-// Nạp sẵn danh sách 24 hồ sơ giả lập và tự động điền vào 10 ghế chờ mà không cần gõ "chờ"
+// Nạp sẵn danh sách 30 hồ sơ giả lập (sim_01..sim_30) và tự động điền vào 10 ghế chờ mà không cần gõ "chờ"
 if (SIM_ENABLED) {
   const now = Date.now();
-  if (engine.players.size === 0) {
-    store.tx(() => {
-      for (const p of SIM_PROFILES) {
+  store.tx(() => {
+    for (const p of SIM_PROFILES) {
+      const existing = engine.players.get(p.userId);
+      if (!existing) {
         const player = {
           userId: p.userId,
           nickname: p.nickname,
@@ -68,18 +70,13 @@ if (SIM_ENABLED) {
         };
         engine.players.set(p.userId, player);
         store.upsertPlayer(player);
+      } else if (!engine.state.session && !existing.locked) {
+        existing.autoRequeue = true;
+        existing.lastActiveAt = now;
+        store.upsertPlayer(existing);
       }
-    });
-  } else if (!engine.state.session && engine.state.queue.length === 0) {
-    store.tx(() => {
-      for (const p of engine.players.values()) {
-        if (!p.locked && !p.autoRequeue) {
-          p.autoRequeue = true;
-          store.upsertPlayer(p);
-        }
-      }
-    });
-  }
+    }
+  });
   if (engine.refillWaitingQueue()) {
     store.saveSnapshot(engine.state);
   }
@@ -130,6 +127,7 @@ function makeAdminPayload() {
     live: tiktok.stats,
     simEnabled: SIM_ENABLED,
     simProfiles: SIM_PROFILES,
+    autoSim: autoSim.getStatus(),
     stageCount: stageClients.length,
   };
 }
@@ -159,6 +157,7 @@ function broadcastAll() {
   });
 }
 
+const autoSim = new AutoSimController(engine, () => broadcastAll(), SIM_ENABLED && process.env.E2E_TEST !== '1');
 engine.onChange(() => broadcastAll());
 tiktok.setSimMode(SIM_ENABLED);
 
@@ -166,6 +165,7 @@ tiktok.setSimMode(SIM_ENABLED);
 let lastPhase = engine.state.phase;
 setInterval(() => {
   engine.tick();
+  autoSim.tick();
   if (engine.state.phase !== lastPhase) {
     lastPhase = engine.state.phase;
     broadcastAll();
@@ -381,6 +381,27 @@ if (SIM_ENABLED) {
       return res.json({ accepted: true, reason: `Đã chuyển sang giai đoạn ${engine.state.phase}`, phase: engine.state.phase });
     }
     res.json({ accepted: false, reason: 'Giai đoạn hiện tại không có đồng hồ đếm ngược' });
+  });
+
+  // Bật / tắt chế độ 30 người chơi tự động trả lời & tặng quà như người thật
+  app.post('/api/sim/auto-toggle', requireAdmin, (req, res) => {
+    const next = typeof req.body?.enabled === 'boolean' ? req.body.enabled : !autoSim.enabled;
+    autoSim.setEnabled(next);
+    broadcastAll();
+    res.json({
+      accepted: true,
+      enabled: autoSim.enabled,
+      reason: autoSim.enabled
+        ? '🤖 Đã BẬT chế độ 30 người chơi tự động (tự trả lời sớm/muộn, tặng quà, đổi ý, trả lời trễ như người thật)'
+        : '⏸️ Đã TẮT chế độ 30 người chơi tự động',
+    });
+  });
+
+  // Kích hoạt ngay 1 đợt 30 người chơi tương tác như thật (trả lời ngay + trả lời sau vài giây + tặng quà + trả lời trễ)
+  app.post('/api/sim/wave-30', requireAdmin, (_req, res) => {
+    const out = autoSim.triggerRealisticWaveNow();
+    broadcastAll();
+    res.json(out);
   });
 } else {
   app.use('/api/sim', (_req, res) => {

@@ -90,6 +90,14 @@ interface AdminPayload {
   };
   simEnabled: boolean;
   simProfiles: SimProfile[];
+  autoSim?: {
+    enabled: boolean;
+    totalPlayers: number;
+    plannedForRunId: string | null;
+    pendingActions: number;
+    completedActions: number;
+    giftsSent: number;
+  };
   stageCount: number;
 }
 
@@ -474,8 +482,28 @@ export function DashboardView() {
               padding: 12,
             }}
           >
-            <div style={{ fontSize: 13.5, fontWeight: 800, color: '#38bdf8', marginBottom: 8 }}>
-              🧪 BỘ GIẢ LẬP BÌNH LUẬN & TÌNH HUỐNG (Mọi nút đều tạo sự kiện đi qua lõi xử lý thật)
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 800, color: '#38bdf8' }}>
+                🧪 BỘ GIẢ LẬP 30 NGƯỜI CHƠI NHƯ THẬT ({admin.simProfiles.length} tài khoản sim_01..sim_30)
+              </div>
+              {admin.autoSim && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12, color: '#cbd5e1' }}>
+                    Câu này: <b>{admin.autoSim.completedActions}</b> đã gửi · <b>{admin.autoSim.pendingActions}</b> chờ trả lời sau · 🎁{' '}
+                    <b>{admin.autoSim.giftsSent}</b> quà
+                  </span>
+                  <Btn
+                    testId="sim-auto-toggle"
+                    tone={admin.autoSim.enabled ? 'primary' : 'ghost'}
+                    onClick={() => callApi('/api/sim/auto-toggle', { enabled: !admin.autoSim?.enabled })}
+                  >
+                    {admin.autoSim.enabled ? '🤖 Tự động 30 người: ĐANG BẬT' : '⏸️ Tự động 30 người: ĐANG TẮT'}
+                  </Btn>
+                  <Btn testId="sim-wave-30" tone="accent" onClick={() => callApi('/api/sim/wave-30')}>
+                    🎭 Kích hoạt đợt 30 người (Trả lời + Trả lời sau + Quà)
+                  </Btn>
+                </div>
+              )}
             </div>
 
             {/* Kịch bản nhanh 1 chạm */}

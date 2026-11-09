@@ -31,6 +31,7 @@ const serverProc = spawn(
       PORT: String(PORT),
       DATA_DIR: tmpDir,
       NODE_ENV: 'production',
+      E2E_TEST: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   },
@@ -81,9 +82,10 @@ try {
   const stageHtml = await stagePage1.content();
   assert.equal(stageHtml.includes('MC GHẾ NÓNG'), false, 'Không còn khung MC trên sân khấu');
 
-  // (3) 10 Ghế chờ tự động đưa người chơi vào ngay từ đầu mà không cần phải nhập "chờ"
+  // (3) 10 Ghế chờ tự động đưa người chơi vào ngay từ đầu mà không cần phải nhập "chờ", và có đủ 30 người chơi giả lập
   const stageStateInitial = await fetch(`${BASE}/api/stage/state`).then((r) => r.json());
   assert.equal(stageStateInitial.waiting.length, 10, '10 ghế chờ phải tự động có đủ 10 người chơi mà không cần gõ "chờ"');
+  assert.equal(stageStateInitial.audienceTotal, 30, 'Phòng chơi có đủ 30 người chơi giả lập');
 
   // 2. Bấm "Bắt đầu phiên" -> tự động đẩy 5 người đầu từ ghế chờ lên 5 ghế nóng (đếm ngược 12s) và tự lấp đầy lại 10 ghế chờ
   await dashPage.getByTestId('btn-start-session').click();
