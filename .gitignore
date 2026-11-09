@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.log
+.env
+.env.*
+!.env.example
+# dữ liệu chạy (SQLite, mã quản trị) - không đưa lên git
+data/runtime/
+data-test/
+# repo tham khảo clone riêng, không trộn vào lịch sử của dự án
+reference/
+test-results/
