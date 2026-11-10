@@ -364,9 +364,18 @@ if (SIM_ENABLED) {
   });
 
   // Tua nhanh đồng hồ của giai đoạn hiện tại (vẫn đi qua engine.tick() và lõi chấm điểm thật)
-  app.post('/api/sim/advance-phase', requireAdmin, (_req, res) => {
+  app.post('/api/sim/advance-phase', requireAdmin, (req, res) => {
     const s = engine.state;
     const now = Date.now();
+    const remainMs = typeof req.body?.remainMs === 'number' ? req.body.remainMs : null;
+    if (remainMs !== null && s.phaseEndsAt != null) {
+      s.phaseEndsAt = now + remainMs;
+      s.phaseStartedAt = Math.min(s.phaseStartedAt, now - 6000);
+      if (s.current && s.phase === 'OPEN') s.current.closesAt = now + remainMs;
+      engine.tick();
+      broadcastAll();
+      return res.json({ accepted: true, reason: `Đã đặt thời gian còn lại = ${Math.ceil(remainMs / 1000)}s`, phase: engine.state.phase });
+    }
     if (s.phase === 'INVITING' && s.invites.length) {
       for (const inv of s.invites) inv.expiresAt = now - 1;
       engine.tick();

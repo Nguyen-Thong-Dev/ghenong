@@ -3,6 +3,8 @@
  * Tận dụng ý tưởng hàng đợi tự gỡ kẹt từ voice.ts của lop-hoc-chu (MIT License, workaipvlinh-byte).
  * Bảo đảm lỗi hoặc chậm TTS không bao giờ làm treo cuộc chơi (§6).
  */
+const MC_SEEN_STORAGE_KEY = 'gn_last_mc_id';
+
 class StageVoice {
   enabled = false;
   rate = 1.05;
@@ -11,9 +13,25 @@ class StageVoice {
   private guardTimer: ReturnType<typeof setTimeout> | null = null;
   onSpeakingChange?: (speaking: boolean) => void;
 
+  constructor() {
+    try {
+      const saved = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(MC_SEEN_STORAGE_KEY) : null;
+      if (saved) this.lastMcId = Number(saved) || 0;
+    } catch {}
+  }
+
+  /** Đánh dấu lời thoại MC đã qua (ví dụ khi tải lại trang F5) để không phát lại lời chào/vinh danh cũ */
+  markSeen(mcId?: number | null) {
+    if (!mcId || mcId <= this.lastMcId) return;
+    this.lastMcId = mcId;
+    try {
+      sessionStorage.setItem(MC_SEEN_STORAGE_KEY, String(mcId));
+    } catch {}
+  }
+
   speakMcLine(mc: { id: number; text: string } | null, allowAudio: boolean) {
-    if (!mc || mc.id === this.lastMcId) return;
-    this.lastMcId = mc.id;
+    if (!mc || mc.id <= this.lastMcId) return;
+    this.markSeen(mc.id);
     if (!allowAudio || !this.enabled || !mc.text.trim()) return;
     this.playUrl(`/api/tts?rate=${this.rate}&text=${encodeURIComponent(mc.text.trim())}`);
   }
@@ -73,6 +91,7 @@ export const stageVoice = new StageVoice();
 class StageSfx {
   private ctx: AudioContext | null = null;
   enabled = true;
+  lastCountdownTickSec: number | null = null;
 
   private getCtx(): AudioContext | null {
     if (!this.enabled) return null;
@@ -111,6 +130,27 @@ class StageSfx {
     } else if (phase === 'HONOR') {
       this.tone(587.33, 140, 'triangle', 0.1);
       setTimeout(() => this.tone(880, 260, 'triangle', 0.1), 130);
+    }
+  }
+
+  /**
+   * Hiệu ứng âm thanh đếm ngược khi gần hết giờ (còn từ 10 giây đổ lại: 10..1s).
+   * - 10s -> 6s: nhịp tích tắc đồng hồ trường quay rõ ràng.
+   * - 5s -> 2s: nhịp cảnh báo kép dồn dập khớp với tư thế 06 của MC.
+   * - 1s cuối: âm báo chốt sổ cao độ.
+   */
+  playCountdownTick(remainSec: number) {
+    if (remainSec < 1 || remainSec > 10) return;
+    this.lastCountdownTickSec = remainSec;
+    if (!this.enabled) return;
+    if (remainSec <= 1) {
+      this.tone(1046.5, 95, 'triangle', 0.1);
+      setTimeout(() => this.tone(1318.5, 140, 'triangle', 0.11), 90);
+    } else if (remainSec <= 5) {
+      this.tone(987.77, 75, 'triangle', 0.09);
+      setTimeout(() => this.tone(1174.66, 65, 'sine', 0.075), 75);
+    } else {
+      this.tone(783.99, 65, 'sine', 0.065);
     }
   }
 }

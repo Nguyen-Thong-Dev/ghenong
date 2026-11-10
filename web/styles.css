@@ -60,8 +60,25 @@ body {
   50% { opacity: 1; }
 }
 
+/* Chuyển động thở rất nhẹ cho MC áo trắng (neo tại bàn chân x=512, y=1440 => 50% 93.75%, không kéo giãn tỉ lệ hình) */
+@keyframes mcBreathe {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50% { transform: translateY(-1.5px) scale(1.007); }
+}
+
 .anim-bob {
   animation: floatBob 2.2s ease-in-out infinite;
+}
+
+.anim-mc-breathe {
+  transform-origin: 50% 93.75%;
+  animation: mcBreathe 3.2s ease-in-out infinite;
+}
+
+.mc-pose-layer {
+  transform-origin: 50% 93.75%;
+  transition: opacity 240ms ease-in-out, transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
 }
 
 .anim-jump {
@@ -95,6 +112,7 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .anim-bob,
+  .anim-mc-breathe,
   .anim-jump,
   .anim-down,
   .anim-honor,

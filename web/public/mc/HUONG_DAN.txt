@@ -1,0 +1,4 @@
+8 PNG RGBA, 1024 x 1536 px. Diem neo chan: x=512, y=1440 (sai so bien khu rang cua 1px).
+Hien thi ca khung anh, khong tu crop theo nhan vat. Cung chieu rong/cao CSS cho moi tu the.
+Anh duoc tach/tai hien bang AI tu anh mau, nen chi tiet co the khac nhe so voi anh tong.
+01 dung; 02 chao; 03 doc cau hoi; 04 gioi thieu; 05 suy nghi; 06 het gio; 07 vinh danh; 08 dong vien.

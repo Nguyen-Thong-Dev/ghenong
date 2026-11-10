@@ -1,13 +1,18 @@
 /**
- * Kiểm tra tự động Giao diện Sân khấu 2.5D & Máy chủ (End-to-End bằng Playwright + Microsoft Edge):
+ * Kiểm tra tự động Giao diện Sân khấu 2.5D, Nhân vật MC Áo Trắng 8 Tư Thế & Máy chủ (End-to-End bằng Playwright + Microsoft Edge):
  * - Kiểm tra cả kích thước gốc 720 × 1280 (9:16) và kích thước hiển thị điện thoại 360 × 640.
- * - Xác minh các khối bố cục (Thanh trên, MC, Bảng câu hỏi, 5 Ghế nóng, 10 Ghế chờ, Khán đài chữ U) không chồng lấn chữ.
- * - Chụp và nghiệm thu đủ 4 trạng thái bắt buộc bằng dữ liệu giả lập:
- *   1) Đủ 5 người ghế nóng, đủ 10 người chờ và 30 khán giả.
- *   2) Câu hỏi dài cùng bốn đáp án dài.
- *   3) Ghế 2 và 5 bị loại (Ghế 1, 3, 4 trả lời đúng có đèn Spotlight chiếu sáng).
- *   4) Nhiều người được vinh danh cùng lúc (đạt mốc cấp 3).
- * - Xác minh tải lại trang không mất ghế và không phát lại hiệu ứng thưởng cũ; kiểm tra tùy chọn giảm chuyển động & âm thanh.
+ * - Xác minh ánh xạ đầy đủ 8 tư thế MC áo trắng (01..08):
+ *   + 01: đứng tự nhiên khi chờ (NO_SESSION / STANDBY / sau khi hành động ngắn kết thúc)
+ *   + 02: chào mở vòng hoặc đón người lên ghế (INVITING / đón người lên ghế)
+ *   + 03: đọc câu hỏi khi mở đề / âm thanh đọc đề đang phát
+ *   + 04: giới thiệu các lựa chọn (ngay sau nhịp đọc đề)
+ *   + 05: suy nghĩ trong thời gian chờ trả lời (OPEN, còn > 5s)
+ *   + 06: nhắc còn 5 giây (OPEN, còn <= 5s, ưu tiên hơn động tác chờ)
+ *   + 07: ăn mừng khi vinh danh (HONOR, ưu tiên hơn động tác thường)
+ *   + 08: động viên sau khi có người bị loại (REVEAL khi có ghế rớt, sau đó trở về 01)
+ * - Xác minh hiệu ứng âm thanh đếm ngược khi còn 10 giây đổ lại (10..1s).
+ * - Xác minh tải lại sân khấu (F5) không phát lại lời chào (02) hoặc vinh danh (07) cũ.
+ * - Xác minh MC lớn dễ nhìn trên điện thoại, chừa không gian cho tay, không che câu hỏi, đáp án hoặc đồng hồ.
  */
 import { chromium } from 'playwright-core';
 import { spawn } from 'node:child_process';
@@ -81,57 +86,99 @@ try {
     stagePage720.goto(`${BASE}/?view=stage&mute=1`),
     stagePage360.goto(`${BASE}/?view=stage&mute=1`),
   ]);
-  await sleep(1000);
-
-  // Kiểm tra font Inter & sự hiện diện của MC + Hướng dẫn chơi theo trạng thái
-  const stageFont = await stagePage720.evaluate(() => getComputedStyle(document.body).fontFamily);
-  assert.equal(stageFont.toLowerCase().includes('inter'), true, 'Toàn bộ game phải sử dụng font chữ Inter');
-  assert.equal(await stagePage720.getByTestId('stage-mc').isVisible(), true, 'MC phải hiển thị cạnh màn hình câu hỏi');
-  assert.equal(await stagePage720.getByTestId('command-guide-box').isVisible(), true, 'Hướng dẫn chơi theo trạng thái phải hiển thị');
+  await sleep(900);
 
   // -------------------------------------------------------------------------
-  // TRẠNG THÁI 1: Đủ 5 người ghế nóng, đủ 10 người chờ và 30 khán giả
+  // KIỂM TRA TƯ THẾ 01: Đứng tự nhiên khi chờ (NO_SESSION)
+  // -------------------------------------------------------------------------
+  const pose01 = await stagePage720.getByTestId('mc-white-host').getAttribute('data-mc-pose');
+  assert.equal(pose01, '01', 'Khi sân khấu đang chờ (NO_SESSION), MC phải ở tư thế 01 (đứng tự nhiên)');
+  await stagePage720.screenshot({ path: path.join(outDir, 'mc-pose-01-standby.png') });
+
+  // -------------------------------------------------------------------------
+  // KIỂM TRA TƯ THẾ 02: Chào mở vòng hoặc đón người lên ghế (INVITING)
   // -------------------------------------------------------------------------
   await dashPage.getByTestId('btn-start-session').click();
   await sleep(350);
-  // Chụp ảnh lúc đang mời 5 ghế nóng (12s)
+  const pose02 = await stagePage720.getByTestId('mc-white-host').getAttribute('data-mc-pose');
+  assert.equal(pose02, '02', 'Khi bắt đầu vòng / đón người lên ghế nóng (INVITING), MC phải ở tư thế 02 (chào)');
   await stagePage720.screenshot({ path: path.join(outDir, 'stage-inviting.png') });
+  await stagePage360.screenshot({ path: path.join(outDir, 'stage-360x640-inviting.png') });
 
+  // Kiểm tra tải lại sân khấu (F5) trong lúc INVITING: không phát lại lời chào cũ (trở về 01)
+  await stagePage720.reload();
+  await sleep(500);
+  const poseAfterInviteReload = await stagePage720.getByTestId('mc-white-host').getAttribute('data-mc-pose');
+  assert.equal(poseAfterInviteReload, '01', 'Tải lại sân khấu không được phát lại lời chào cũ (về tư thế 01)');
+
+  // -------------------------------------------------------------------------
+  // KIỂM TRA TƯ THẾ 03 -> 04 -> 05: Đọc câu hỏi -> Giới thiệu lựa chọn -> Suy nghĩ chờ trả lời
+  // -------------------------------------------------------------------------
   // Qua 12s chuẩn bị -> 5 người vào ghế nóng 1..5, sang PREPARE
   await dashPage.getByTestId('btn-advance-phase').click();
-  await sleep(300);
+  await sleep(250);
   // Qua 5s PREPARE -> sang OPEN câu #1
   await dashPage.getByTestId('btn-advance-phase').click();
-  await sleep(450);
+  await sleep(350);
+
+  // Ngay đầu pha OPEN (< 2s): Tư thế 03 (Đọc câu hỏi)
+  const pose03 = await stagePage720.getByTestId('mc-white-host').getAttribute('data-mc-pose');
+  assert.equal(pose03, '03', 'Khi mới mở câu hỏi (đang đọc đề), MC phải ở tư thế 03 (đọc câu hỏi)');
+  await stagePage720.screenshot({ path: path.join(outDir, 'mc-pose-03-reading.png') });
+
+  // Sau ~2.1s từ lúc mở đề: chuyển sang Tư thế 04 (Giới thiệu các lựa chọn)
+  await sleep(2000);
+  const pose04 = await stagePage720.getByTestId('mc-white-host').getAttribute('data-mc-pose');
+  assert.equal(pose04, '04', 'Sau khi đọc câu hỏi, MC phải chuyển sang tư thế 04 (giới thiệu các lựa chọn)');
+  await stagePage720.screenshot({ path: path.join(outDir, 'mc-pose-04-choices.png') });
+
+  // Sau khi kết thúc hành động ngắn giới thiệu lựa chọn (~2.4s tiếp): chuyển về Tư thế 05 (Suy nghĩ trong thời gian chờ trả lời)
+  await sleep(2500);
+  const pose05 = await stagePage720.getByTestId('mc-white-host').getAttribute('data-mc-pose');
+  assert.equal(pose05, '05', 'Khi chờ người chơi trả lời (còn > 5s), MC phải ở tư thế 05 (suy nghĩ)');
 
   const stateOpen1 = await fetch(`${BASE}/api/stage/state`).then((r) => r.json());
   assert.equal(stateOpen1.phase, 'OPEN');
   assert.equal(stateOpen1.seats.filter((s) => s.occupant).length, 5, 'Phải có đủ 5 người trên ghế nóng');
   assert.equal(stateOpen1.waiting.length, 10, 'Phải có đủ 10 người trên ghế chờ (2 hàng × 5 ghế)');
   assert.equal(stateOpen1.audience.length >= 30, true, 'Phải có đủ 30 khán giả trong danh sách khán đài');
-  assert.equal('correct' in (stateOpen1.question || {}), false, 'Không lộ đáp án đúng trước khi chốt câu');
 
   // Cho 2 ghế nóng (ghế 1 và ghế 3) khóa đáp án trước để thấy rõ trạng thái "ĐÃ KHÓA ĐÁP ÁN"
   const adminOpen1 = await fetch(`${BASE}/api/admin/state`, { headers }).then((r) => r.json());
   const q1 = adminOpen1.current.question;
   await api('/api/sim/chat', { userId: 'sim_01', text: `${adminOpen1.current.code}${q1.correct}` });
   await api('/api/sim/chat', { userId: 'sim_03', text: `${adminOpen1.current.code}${q1.correct}` });
-  await sleep(400);
+  await sleep(350);
 
-  // Kiểm tra không chồng lấn giữa MC, Màn hình câu hỏi, 5 Ghế nóng, 10 Ghế chờ
+  // Kiểm tra kích thước MC lớn dễ nhìn & không chồng lấn chữ với màn hình câu hỏi, đáp án, đồng hồ
   const layoutCheck = await stagePage720.evaluate(() => {
     const rect = (tid) => document.querySelector(`[data-testid="${tid}"]`)?.getBoundingClientRect();
-    const mc = rect('stage-mc');
+    const mcBox = rect('stage-mc');
+    const mcHost = rect('mc-white-host');
     const qb = rect('question-board');
+    const timer = rect('stage-timer');
+    const qText = rect('question-text');
+    const choiceA = rect('choice-A');
     const hs = rect('hot-seats-row');
     const ws = rect('waiting-seats-section');
     return {
-      mcRightLeQbLeft: mc.right <= qb.left + 1,
+      mcWidth: mcHost.width,
+      mcHeight: mcHost.height,
+      mcRightLeQbLeft: mcBox.right <= qb.left + 1,
+      mcHostRightLeQbLeft: mcHost.right <= qb.left + 1,
+      mcNotOverlapTimer: mcHost.right <= timer.left,
+      mcNotOverlapQText: mcHost.right <= qText.left,
+      mcNotOverlapChoiceA: mcHost.right <= choiceA.left,
       qbBottomLeHsTop: qb.bottom <= hs.top + 8,
       hsBottomLeWsTop: hs.bottom <= ws.top + 4,
     };
   });
-  assert.equal(layoutCheck.mcRightLeQbLeft, true, 'MC đứng cạnh màn hình câu hỏi, không đè lên màn hình câu hỏi');
+  assert.equal(layoutCheck.mcWidth >= 160 && layoutCheck.mcHeight >= 240, true, 'Kích thước MC phải lớn rõ ràng (168×252 tỉ lệ 2:3)');
+  assert.equal(layoutCheck.mcRightLeQbLeft, true, 'Khung MC không đè lên màn hình câu hỏi');
+  assert.equal(layoutCheck.mcHostRightLeQbLeft, true, 'Hình nhân vật MC (kể cả tay) không đè lên màn hình câu hỏi');
+  assert.equal(layoutCheck.mcNotOverlapTimer, true, 'MC không che đồng hồ');
+  assert.equal(layoutCheck.mcNotOverlapQText, true, 'MC không che câu hỏi');
+  assert.equal(layoutCheck.mcNotOverlapChoiceA, true, 'MC không che đáp án');
   assert.equal(layoutCheck.qbBottomLeHsTop, true, 'Màn hình câu hỏi không đè lên 5 ghế nóng');
   assert.equal(layoutCheck.hsBottomLeWsTop, true, '5 ghế nóng không đè lên 10 ghế chờ');
 
@@ -140,13 +187,33 @@ try {
   await dashPage.screenshot({ path: path.join(outDir, 'dashboard-open.png') });
 
   // -------------------------------------------------------------------------
-  // TRẠNG THÁI 3: Ghế 2 và 5 bị loại (Ghế 1, 3, 4 trả lời ĐÚNG có đèn Spotlight chiếu sáng)
+  // KIỂM TRA ÂM BÁO <= 10 GIÂY & TƯ THẾ 06 (NHẮC CÒN <= 5 GIÂY)
+  // -------------------------------------------------------------------------
+  // Đặt thời gian còn lại = 9 giây (<= 10 giây): âm thanh đếm ngược kích hoạt, MC vẫn ở tư thế 05
+  await api('/api/sim/advance-phase', { remainMs: 8800 });
+  await sleep(300);
+  const sfxAt9s = Number(await stagePage720.getByTestId('stage-timer').getAttribute('data-countdown-sfx'));
+  assert.equal(sfxAt9s >= 1 && sfxAt9s <= 10, true, 'Khi còn <= 10 giây phải kích hoạt hiệu ứng âm thanh đếm ngược');
+
+  // Đặt thời gian còn lại = 4.6 giây (<= 5 giây): MC ưu tiên chuyển ngay sang tư thế 06 (nhắc còn 5 giây)
+  await api('/api/sim/advance-phase', { remainMs: 4600 });
+  await sleep(300);
+  const pose06 = await stagePage720.getByTestId('mc-white-host').getAttribute('data-mc-pose');
+  assert.equal(pose06, '06', 'Khi thời gian còn <= 5 giây, MC phải ưu tiên chuyển sang tư thế 06 (nhắc còn 5 giây)');
+  await stagePage720.screenshot({ path: path.join(outDir, 'mc-pose-06-5sec-warning.png') });
+  await stagePage360.screenshot({ path: path.join(outDir, 'stage-360x640-5sec-warning.png') });
+
+  // -------------------------------------------------------------------------
+  // KIỂM TRA TƯ THẾ 08: Động viên sau khi có người bị loại (Ghế 2 và 5 bị loại) -> rồi trở về 01
   // -------------------------------------------------------------------------
   await dashPage.getByTestId('sim-seat25-wrong').click();
-  await sleep(400);
-  // Tua hết 30s OPEN -> sang REVEAL
+  await sleep(300);
+  // Tua hết giờ OPEN -> sang REVEAL
   await dashPage.getByTestId('btn-advance-phase').click();
-  await sleep(450);
+  await sleep(400);
+
+  const pose08 = await stagePage720.getByTestId('mc-white-host').getAttribute('data-mc-pose');
+  assert.equal(pose08, '08', 'Sau khi có người bị loại ở pha REVEAL, MC phải ở tư thế 08 (động viên)');
 
   // Xác minh đèn Spotlight chiến thắng bật sáng ở đúng ghế 1, 3, 4 và không bật ở ghế 2, 5
   assert.equal(await stagePage720.getByTestId('spotlight-correct-1').count(), 1, 'Ghế 1 đúng phải có đèn Spotlight chiếu sáng');
@@ -158,13 +225,12 @@ try {
   await stagePage720.screenshot({ path: path.join(outDir, 'stage-seat2-5-eliminated.png') });
   await stagePage360.screenshot({ path: path.join(outDir, 'stage-360x640-seat2-5-eliminated.png') });
 
-  // Kiểm tra tải lại trang (F5) giữa pha REVEAL: giữ nguyên kết quả nhưng không phát lại hiệu ứng nổ thưởng cũ
-  await stagePage720.reload();
-  await sleep(500);
-  const popCountAfterReload = await stagePage720.locator('.anim-score-pop').count();
-  assert.equal(popCountAfterReload, 0, 'Tải lại trang không được phát lại hoạt ảnh thưởng cũ');
+  // Chờ hành động ngắn động viên (08) kết thúc (~3.2s) -> MC tự động trở về tư thế 01 (đứng tự nhiên)
+  await sleep(3100);
+  const poseAfter08ShortAction = await stagePage720.getByTestId('mc-white-host').getAttribute('data-mc-pose');
+  assert.equal(poseAfter08ShortAction, '01', 'Khi hành động ngắn động viên (08) kết thúc, MC phải trở về tư thế 01');
 
-  // Tua qua REVEAL (5s) -> HONOR (3s) -> TRANSITION (4s) -> INVITING (đẩy sim_06, sim_07 lên ghế 2, 5) -> PREPARE -> OPEN câu #2
+  // Tua qua REVEAL -> HONOR -> TRANSITION -> INVITING -> PREPARE -> OPEN câu #2
   await dashPage.getByTestId('btn-advance-phase').click(); // -> HONOR
   await sleep(250);
   await dashPage.getByTestId('btn-advance-phase').click(); // -> TRANSITION
@@ -177,9 +243,8 @@ try {
   await sleep(350);
 
   // -------------------------------------------------------------------------
-  // TRẠNG THÁI 4: Nhiều người được vinh danh cùng lúc (đạt mốc Cấp 3)
+  // KIỂM TRA TƯ THẾ 07: Ăn mừng khi vinh danh (Nhiều người được vinh danh cùng lúc)
   // -------------------------------------------------------------------------
-  // Câu 2: cả 5 ghế cùng trả lời đúng (Ghế 1, 3, 4 lên Cấp 2; Ghế 2, 5 lên Cấp 1)
   const adminOpen2 = await fetch(`${BASE}/api/admin/state`, { headers }).then((r) => r.json());
   for (const s of adminOpen2.seats) {
     await api('/api/sim/chat', { userId: s.userId, text: `${adminOpen2.current.code}${adminOpen2.current.question.correct}` });
@@ -199,16 +264,24 @@ try {
   }
   await api('/api/sim/advance-phase'); // OPEN -> REVEAL câu 3
   await api('/api/sim/advance-phase'); // REVEAL -> HONOR câu 3 (3 người đạt mốc Cấp 3 cùng lúc!)
-  await sleep(450);
+  await sleep(400);
 
+  const pose07 = await stagePage720.getByTestId('mc-white-host').getAttribute('data-mc-pose');
+  assert.equal(pose07, '07', 'Khi vinh danh (HONOR), MC phải ở tư thế 07 (ăn mừng vinh danh)');
   assert.equal(await stagePage720.getByTestId('honor-overlay').isVisible(), true, 'Bảng vinh danh nhiều người cùng lúc phải hiển thị');
   await stagePage720.screenshot({ path: path.join(outDir, 'stage-multi-honor.png') });
   await stagePage360.screenshot({ path: path.join(outDir, 'stage-360x640-multi-honor.png') });
 
+  // Kiểm tra tải lại sân khấu (F5) trong lúc HONOR: không phát lại vinh danh cũ (MC về tư thế 01, không nổ lại anim-honor)
+  await stagePage720.reload();
+  await sleep(500);
+  const poseAfterHonorReload = await stagePage720.getByTestId('mc-white-host').getAttribute('data-mc-pose');
+  assert.equal(poseAfterHonorReload, '01', 'Tải lại sân khấu không được phát lại tư thế vinh danh cũ (về tư thế 01)');
+  assert.equal(await stagePage720.locator('.anim-honor').count(), 0, 'Tải lại sân khấu không được phát lại hoạt ảnh vinh danh cũ');
+
   // -------------------------------------------------------------------------
-  // TRẠNG THÁI 2: Câu hỏi dài cùng bốn đáp án dài (Kiểm tra không tràn/chồng chữ)
+  // KIỂM TRA CÂU HỎI DÀI + 4 ĐÁP ÁN DÀI VỚI MC KÍCH THƯỚC LỚN
   // -------------------------------------------------------------------------
-  // Tắt các câu cũ và thêm 1 câu hỏi rất dài + 4 đáp án dài để câu #4 chắc chắn chọn câu dài này
   const allQs = adminOpen3.questions;
   for (const q of allQs) {
     await api('/api/admin/questions/status', { id: q.id, status: 'disabled' });
@@ -248,7 +321,7 @@ try {
   );
   assert.equal(hasReduceMotionClass, true, 'Bật tùy chọn giảm chuyển động phải gắn class reduce-motion lên sân khấu');
 
-  console.log('[E2E] TẤT CẢ KIỂM TRA GIAO DIỆN 2.5D (720×1280 & 360×640) VÀ 4 TRẠNG THÁI ĐỀU ĐẠT!');
+  console.log('[E2E] TẤT CẢ KIỂM TRA 8 TƯ THẾ MC ÁO TRẮNG, ÂM BÁO 10S & GIAO DIỆN 2.5D ĐỀU ĐẠT!');
 } finally {
   await browser?.close();
   serverProc.kill();

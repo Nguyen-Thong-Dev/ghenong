@@ -3,9 +3,12 @@ import {
   AudienceSeatUnit25D,
   Character25D,
   HotSeatUnit25D,
+  MC_WHITE_POSES,
+  McWhiteHost25D,
   WaitingSeatUnit25D,
   type CharacterPose,
   type HotSeatVisualState,
+  type McPoseCode,
 } from './Character25D';
 import { stageSfx, stageVoice } from './sound';
 
@@ -103,7 +106,7 @@ function getDynamicGuide(data: StageState): { badge: string; text: string } {
     case 'OPEN':
       return {
         badge: 'CÚ PHÁP TRẢ LỜI',
-        text: `Bình luận ${code}A · ${code}B · ${code}C · ${code}D (Đúng +10đ, Ghế nóng +1 cấp)`,
+        text: `Bình luận ${code}A · ${code}B · ${code}C · ${code}D (Đúng +10đ & +1 cấp)`,
       };
     case 'PREPARE':
       return {
@@ -113,18 +116,18 @@ function getDynamicGuide(data: StageState): { badge: string; text: string } {
     case 'INVITING':
       return {
         badge: 'LÊN GHẾ NÓNG',
-        text: 'Người ở Ghế Chờ tự động vào Ghế Nóng sau 12s · Gõ HỦY nếu muốn nhường',
+        text: 'Ghế Chờ tự động vào Ghế Nóng sau 12s · Gõ HỦY nếu nhường',
       };
     case 'REVEAL':
     case 'HONOR':
       return {
         badge: 'LUẬT GHẾ NÓNG',
-        text: 'Đúng: Giữ ghế +10đ & tăng cấp · Sai/Hết giờ: Nhường ghế cho hàng chờ',
+        text: 'Đúng: Giữ ghế +10đ & tăng cấp · Sai/Hết giờ: Nhường ghế',
       };
     default:
       return {
         badge: 'HƯỚNG DẪN NHANH',
-        text: 'Tự động vào 10 Ghế Chờ & 5 Ghế Nóng · Gõ ĐIỂM / VỊ TRÍ / NHƯỜNG khi cần',
+        text: 'Tự động vào 10 Ghế Chờ & 5 Ghế Nóng · Gõ ĐIỂM / VỊ TRÍ',
       };
   }
 }
@@ -212,6 +215,129 @@ const U_STAND_SLOTS: { x: number; y: number }[] = (() => {
 
 const HOT_SEAT_CENTERS_X = [88, 224, 360, 496, 632];
 
+/**
+ * Điều khiển 8 tư thế MC áo trắng dựa trên trạng thái và sự kiện thực tế của game:
+ * - 01: đứng tự nhiên khi chờ
+ * - 02: chào mở vòng hoặc đón người lên ghế
+ * - 03: đọc câu hỏi khi âm thanh đọc đề đang phát
+ * - 04: giới thiệu các lựa chọn
+ * - 05: suy nghĩ trong thời gian chờ trả lời
+ * - 06: nhắc còn 5 giây (ưu tiên cao hơn động tác chờ/suy nghĩ/đọc đề/giới thiệu trong pha OPEN)
+ * - 07: ăn mừng khi vinh danh (ưu tiên cao hơn động tác thường)
+ * - 08: động viên sau khi có người bị loại
+ * Các hành động ngắn kết thúc thì trở về trạng thái phù hợp. Tải lại trang không phát lại lời chào hoặc vinh danh cũ.
+ */
+export function resolveMcPose(params: {
+  data: StageState;
+  remainSec: number | null;
+  mcSpeaking: boolean;
+  elapsedPhaseMs: number;
+  sinceQuestionSpeechEndMs: number | null;
+  isWelcomePulse: boolean;
+  isReloadedOldPhase: boolean;
+}): McPoseCode {
+  const {
+    data,
+    remainSec,
+    mcSpeaking,
+    elapsedPhaseMs,
+    sinceQuestionSpeechEndMs,
+    isWelcomePulse,
+    isReloadedOldPhase,
+  } = params;
+
+  const hasEliminated = data.seats.some(
+    (s) => s.departed !== null || s.occupant?.result === 'wrong' || s.occupant?.result === 'none',
+  );
+  const hasHonored = Boolean(
+    data.honor &&
+      (data.honor.kind === 'milestone' || data.honor.kind === 'keep' || data.honor.correctSeats.length > 0),
+  );
+  const hasCorrectSeat = data.seats.some((s) => s.occupant?.result === 'correct');
+
+  // 1. Ưu tiên cao nhất trong pha OPEN: Nhắc còn 5 giây (06) > mọi động tác chờ/đọc/giới thiệu/suy nghĩ
+  if (data.phase === 'OPEN' && remainSec !== null && remainSec <= 5) {
+    return '06';
+  }
+
+  // 2. Pha VINH DANH (HONOR) hoặc BẢNG TỔNG KẾT VÒNG (ROUND_BOARD):
+  //    Ưu tiên ăn mừng vinh danh (07) hơn động tác thường; nếu tải lại sân khấu ở pha vinh danh cũ thì về 01
+  if (data.phase === 'HONOR') {
+    if (isReloadedOldPhase) return '01';
+    if (hasHonored) return '07';
+    if ((data.honor?.kind === 'fresh' || hasEliminated) && elapsedPhaseMs < 2600) return '08';
+    return '01';
+  }
+
+  if (data.phase === 'ROUND_BOARD') {
+    if (!isReloadedOldPhase && elapsedPhaseMs < 3000) return '07';
+    return '01';
+  }
+
+  // 3. Pha CÔNG BỐ ĐÁP ÁN (REVEAL) & CHUYỂN CÂU (TRANSITION):
+  //    Nếu có người bị loại -> động viên (08) trong nhịp ngắn rồi về đứng tự nhiên (01)
+  if (data.phase === 'REVEAL') {
+    if (isReloadedOldPhase) return '01';
+    if (hasEliminated) {
+      return elapsedPhaseMs < 3200 ? '08' : '01';
+    }
+    if (hasCorrectSeat && elapsedPhaseMs < 2600) {
+      return '07';
+    }
+    return elapsedPhaseMs < 2200 ? '04' : '01';
+  }
+
+  if (data.phase === 'TRANSITION') {
+    if (!isReloadedOldPhase && hasEliminated && elapsedPhaseMs < 2200) {
+      return '08';
+    }
+    if (!isReloadedOldPhase && isWelcomePulse) {
+      return '02';
+    }
+    return '01';
+  }
+
+  // 4. Pha CHUẨN BỊ CÂU HỎI (PREPARE):
+  //    Khi âm thanh đọc đề đang phát (hoặc nhịp đầu đọc mã câu/chủ đề) -> 03; sau đó giới thiệu ngắn (04) hoặc đứng chờ (01)
+  if (data.phase === 'PREPARE') {
+    if (mcSpeaking) return '03';
+    if (!isReloadedOldPhase && elapsedPhaseMs < 1800) return '03';
+    if (!isReloadedOldPhase && elapsedPhaseMs < 3400) return '04';
+    return '01';
+  }
+
+  // 5. Pha MỞ CÂU HỎI NHẬN ĐÁP ÁN (OPEN, khi thời gian còn > 5 giây):
+  //    - 03: Đọc câu hỏi khi âm thanh đọc đề đang phát (hoặc 2.0s đầu mở đề khi tắt tiếng)
+  //    - 04: Giới thiệu 4 lựa chọn ngay sau khi đọc câu hỏi (~2.4s)
+  //    - 05: Suy nghĩ trong thời gian chờ người chơi trả lời
+  if (data.phase === 'OPEN') {
+    if (mcSpeaking) return '03';
+    if (sinceQuestionSpeechEndMs !== null && sinceQuestionSpeechEndMs < 2400) {
+      return '04';
+    }
+    if (!isReloadedOldPhase && sinceQuestionSpeechEndMs === null) {
+      if (elapsedPhaseMs < 2000) return '03';
+      if (elapsedPhaseMs < 4400) return '04';
+    }
+    return '05';
+  }
+
+  // 6. Pha ĐÓN NGƯỜI LÊN GHẾ (INVITING) hoặc mới mở vòng / đón người vừa ngồi vào ghế nóng:
+  //    - 02: Chào mở vòng hoặc đón người lên ghế (hành động ngắn ~3.6s rồi trở về 01; không phát lại khi F5)
+  if (data.phase === 'INVITING') {
+    if (isReloadedOldPhase) return '01';
+    if (elapsedPhaseMs < 3600 || isWelcomePulse) return '02';
+    return '01';
+  }
+
+  if (!isReloadedOldPhase && isWelcomePulse) {
+    return '02';
+  }
+
+  // 7. Mặc định khi chờ (NO_SESSION, STANDBY, PAUSED, NO_QUESTIONS, ENDED): 01 đứng tự nhiên
+  return '01';
+}
+
 export function StageCanvas({
   data,
   myStageId,
@@ -227,18 +353,38 @@ export function StageCanvas({
   const [tickNow, setTickNow] = useState(() => Date.now());
   const [mcSpeaking, setMcSpeaking] = useState(false);
   const [freshRewardKey, setFreshRewardKey] = useState<string>('');
+  const [reloadedFxKey, setReloadedFxKey] = useState<string>('');
+  const [questionSpeechEndedAt, setQuestionSpeechEndedAt] = useState<number | null>(null);
+  const [welcomeUntilAt, setWelcomeUntilAt] = useState<number>(0);
+  const [lastCountdownSec, setLastCountdownSec] = useState<number | null>(null);
+
   const isFirstSyncRef = useRef<boolean>(true);
   const lastFxKeyRef = useRef<string>('');
+  const prevSpeakingRef = useRef<boolean>(false);
+  const prevPhaseRef = useRef<string>('');
+  const prevRoundRef = useRef<number>(0);
+  const prevSeatedSigRef = useRef<string>('');
+  const lastCountdownKeyRef = useRef<string>('');
 
   useEffect(() => {
     try {
       lastFxKeyRef.current = sessionStorage.getItem('gn_last_fx_key') || '';
     } catch {}
-    stageVoice.onSpeakingChange = setMcSpeaking;
+    stageVoice.onSpeakingChange = (speaking) => {
+      setMcSpeaking(speaking);
+    };
     return () => {
       stageVoice.onSpeakingChange = undefined;
     };
   }, []);
+
+  // Ghi nhận thời điểm âm thanh đọc đề vừa kết thúc để chuyển mượt từ tư thế 03 (đọc câu hỏi) -> 04 (giới thiệu lựa chọn) -> 05 (suy nghĩ)
+  useEffect(() => {
+    if (prevSpeakingRef.current && !mcSpeaking && data?.phase === 'OPEN') {
+      setQuestionSpeechEndedAt(Date.now() + nowOffset);
+    }
+    prevSpeakingRef.current = mcSpeaking;
+  }, [mcSpeaking, data?.phase, nowOffset]);
 
   useEffect(() => {
     if (!data) return;
@@ -251,10 +397,15 @@ export function StageCanvas({
     const fxKey = `${data.question?.code ?? 0}:${data.phase}:${data.phaseStartedAt}`;
     const ageMs = Math.max(0, data.serverNow - data.phaseStartedAt);
     const alreadyPlayed = lastFxKeyRef.current === fxKey;
+    const seatedSig = data.seats.map((s) => s.occupant?.userId ?? '').join('|');
+    const curRound = data.session?.round ?? 0;
 
     if (isFirstSyncRef.current) {
       isFirstSyncRef.current = false;
-      // Khi tải lại trang (F5): nếu sự kiện/pha này đã phát trước đó hoặc đã qua > 1.5s thì KHÔNG phát lại hiệu ứng thưởng cũ
+      prevPhaseRef.current = data.phase;
+      prevRoundRef.current = curRound;
+      prevSeatedSigRef.current = seatedSig;
+      // Khi tải lại trang (F5): nếu sự kiện/pha này đã phát trước đó hoặc đã qua > 1.5s thì KHÔNG phát lại lời chào hay vinh danh cũ
       lastFxKeyRef.current = fxKey;
       try {
         sessionStorage.setItem('gn_last_fx_key', fxKey);
@@ -263,20 +414,46 @@ export function StageCanvas({
         setFreshRewardKey(fxKey);
         if (stageVoice.enabled) stageVoice.speakMcLine(data.mc, true);
         if (stageSfx.enabled) stageSfx.playPhase(data.phase);
+      } else {
+        setReloadedFxKey(fxKey);
+        stageVoice.markSeen(data.mc?.id);
       }
       return;
     }
 
     if (fxKey !== lastFxKeyRef.current) {
       lastFxKeyRef.current = fxKey;
+      setReloadedFxKey('');
+      if (data.phase !== prevPhaseRef.current) {
+        setQuestionSpeechEndedAt(null);
+      }
+      prevPhaseRef.current = data.phase;
       try {
         sessionStorage.setItem('gn_last_fx_key', fxKey);
       } catch {}
       setFreshRewardKey(fxKey);
       if (stageSfx.enabled) stageSfx.playPhase(data.phase);
     }
+
+    // Phát hiện mở vòng mới hoặc đón người mới bước lên ghế nóng -> bật nhịp chào/đón ghế ngắn (02)
+    if (curRound > 0 && curRound !== prevRoundRef.current) {
+      prevRoundRef.current = curRound;
+      setWelcomeUntilAt(data.serverNow + 2600);
+    }
+    if (seatedSig !== prevSeatedSigRef.current) {
+      const prevIds = prevSeatedSigRef.current.split('|').filter(Boolean);
+      const nextIds = seatedSig.split('|').filter(Boolean);
+      const addedSeat = nextIds.some((id) => !prevIds.includes(id));
+      prevSeatedSigRef.current = seatedSig;
+      if (addedSeat) {
+        setWelcomeUntilAt(data.serverNow + 2400);
+      }
+    }
+
     if (stageVoice.enabled) {
       stageVoice.speakMcLine(data.mc, true);
+    } else {
+      stageVoice.markSeen(data.mc?.id);
     }
   }, [data, myStageId, mute]);
 
@@ -284,6 +461,21 @@ export function StageCanvas({
     const t = setInterval(() => setTickNow(Date.now() + nowOffset), 100);
     return () => clearInterval(t);
   }, [nowOffset]);
+
+  // Hiệu ứng âm thanh đếm ngược khi gần hết giờ còn 10 giây đổ lại (10..1s) trong pha OPEN
+  const remainSec = data?.phaseEndsAt ? Math.max(0, Math.ceil((data.phaseEndsAt - tickNow) / 1000)) : null;
+  useEffect(() => {
+    if (!data || data.phase !== 'OPEN' || remainSec === null || remainSec < 1 || remainSec > 10) {
+      if (data?.phase !== 'OPEN') setLastCountdownSec(null);
+      return;
+    }
+    const tickKey = `${data.question?.code ?? 0}:${data.phaseStartedAt}:${remainSec}`;
+    if (lastCountdownKeyRef.current !== tickKey) {
+      lastCountdownKeyRef.current = tickKey;
+      setLastCountdownSec(remainSec);
+      stageSfx.playCountdownTick(remainSec);
+    }
+  }, [data, remainSec]);
 
   if (!data) {
     return (
@@ -305,16 +497,32 @@ export function StageCanvas({
     );
   }
 
-  const remainSec = data.phaseEndsAt ? Math.max(0, Math.ceil((data.phaseEndsAt - tickNow) / 1000)) : null;
   const safe = data.display;
   const reduceMotion = Boolean(data.display.reduceMotion);
   const currentFxKey = `${data.question?.code ?? 0}:${data.phase}:${data.phaseStartedAt}`;
-  const isFreshReward = !reduceMotion && freshRewardKey === currentFxKey;
+  const isReloadedOldPhase = reloadedFxKey === currentFxKey;
+  const isFreshReward = !reduceMotion && freshRewardKey === currentFxKey && !isReloadedOldPhase;
   const guide = getDynamicGuide(data);
+
+  const elapsedPhaseMs = Math.max(0, tickNow - data.phaseStartedAt);
+  const sinceQuestionSpeechEndMs =
+    questionSpeechEndedAt !== null ? Math.max(0, tickNow - questionSpeechEndedAt) : null;
+  const isWelcomePulse = tickNow < welcomeUntilAt;
+
+  const mcPose = resolveMcPose({
+    data,
+    remainSec,
+    mcSpeaking,
+    elapsedPhaseMs,
+    sinceQuestionSpeechEndMs,
+    isWelcomePulse,
+    isReloadedOldPhase,
+  });
+  const mcPoseMeta = MC_WHITE_POSES[mcPose];
 
   // Cỡ chữ tự động co giãn khi câu hỏi dài hoặc 4 đáp án dài để hiển thị đầy đủ 100%, không cắt chữ
   const qTextLen = data.question?.text?.length ?? 0;
-  const qFontSize = qTextLen > 130 ? 15.5 : qTextLen > 90 ? 17.5 : 19.5;
+  const qFontSize = qTextLen > 130 ? 14.5 : qTextLen > 90 ? 16.5 : 18.5;
 
   return (
     <div
@@ -567,7 +775,7 @@ export function StageCanvas({
       </div>
 
       {/* ====================================================================
-          2. KHU TRUNG TÂM PHÍA TRÊN: MC đứng cạnh + Màn hình câu hỏi, 4 đáp án & Đồng hồ
+          2. KHU TRUNG TÂM PHÍA TRÊN: MC áo trắng 8 tư thế đứng cạnh + Màn hình câu hỏi, 4 đáp án & Đồng hồ
          ==================================================================== */}
       <div
         style={{
@@ -578,43 +786,60 @@ export function StageCanvas({
           height: 344,
           display: 'flex',
           alignItems: 'stretch',
-          gap: 10,
+          gap: 8,
           pointerEvents: 'none',
           zIndex: 10,
         }}
       >
-        {/* MC đứng cạnh màn hình câu hỏi — tách cột riêng nên KHÔNG BAO GIỜ che chữ */}
+        {/* MC áo trắng 8 tư thế đứng cạnh màn hình câu hỏi — khung riêng 176px rộng rãi cho tay, KHÔNG BAO GIỜ che chữ */}
         <div
           data-testid="stage-mc"
+          data-mc-pose={mcPose}
           style={{
-            width: 102,
-            background: 'linear-gradient(180deg, rgba(12, 24, 56, 0.95) 0%, rgba(7, 13, 32, 0.98) 100%)',
-            border: '2px solid #fbbf24',
+            width: 176,
+            background: 'linear-gradient(180deg, rgba(12, 24, 56, 0.94) 0%, rgba(6, 12, 30, 0.98) 100%)',
+            border: `2px solid ${mcPose === '06' ? '#ef4444' : mcPose === '07' ? '#fde047' : '#fbbf24'}`,
             borderRadius: 16,
-            padding: '8px 6px',
+            padding: '5px 4px',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'space-between',
-            boxShadow: '0 10px 24px rgba(0,0,0,0.6)',
+            boxShadow: '0 10px 24px rgba(0,0,0,0.65)',
             flexShrink: 0,
+            overflow: 'hidden',
           }}
         >
-          <span
-            style={{
-              background: 'linear-gradient(90deg, #f59e0b, #fbbf24)',
-              color: '#090d1b',
-              fontSize: 11,
-              fontWeight: 900,
-              padding: '2px 8px',
-              borderRadius: 99,
-            }}
-          >
-            🎤 MC
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span
+              style={{
+                background: 'linear-gradient(90deg, #f59e0b, #fbbf24)',
+                color: '#090d1b',
+                fontSize: 10.5,
+                fontWeight: 900,
+                padding: '2px 7px',
+                borderRadius: 99,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              🎤 MC #{mcPose}
+            </span>
+            <span
+              data-testid="stage-mc-pose-label"
+              style={{
+                fontSize: 10,
+                fontWeight: 800,
+                color: mcPoseMeta.badgeColor,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {mcPoseMeta.label}
+            </span>
+          </div>
 
-          <div style={{ margin: '2px 0' }}>
-            <Character25D pose="mc" size={66} speaking={mcSpeaking && !reduceMotion} />
+          {/* Khung ảnh MC áo trắng chuẩn 2:3 (168 × 252 px, hiển thị toàn khung 1024 × 1536 không crop) */}
+          <div style={{ margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <McWhiteHost25D poseCode={mcPose} width={168} height={252} reduceMotion={reduceMotion} />
           </div>
 
           {/* Bục đứng MC 2.5D + Trạng thái dẫn ngắn gọn */}
@@ -624,19 +849,25 @@ export function StageCanvas({
               background: 'linear-gradient(180deg, #1e3a8a 0%, #0f172a 100%)',
               border: '1.5px solid #22d3ee',
               borderRadius: 10,
-              padding: '5px 4px',
+              padding: '4px 5px',
               textAlign: 'center',
             }}
           >
-            <div style={{ fontSize: 10, fontWeight: 900, color: '#fde047' }}>TRƯỜNG QUAY</div>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: '#e0f2fe', marginTop: 2, lineHeight: 1.2 }}>
+            <div style={{ fontSize: 9.5, fontWeight: 900, color: '#fde047', whiteSpace: 'nowrap' }}>
+              {mcPoseMeta.label.toUpperCase()}
+            </div>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: '#e0f2fe', marginTop: 1, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
               {data.phase === 'OPEN'
-                ? `Câu #${data.question?.code}`
+                ? remainSec !== null && remainSec <= 5
+                  ? `⚠️ Sắp hết giờ (${remainSec}s)!`
+                  : `Đang mở Câu #${data.question?.code}`
                 : data.phase === 'INVITING'
-                  ? 'Đẩy ghế 12s'
+                  ? 'Đón người lên ghế (12s)'
                   : data.phase === 'REVEAL'
-                    ? `Đáp án ${data.reveal?.correct ?? ''}`
-                    : 'Sẵn sàng'}
+                    ? `Đáp án đúng: ${data.reveal?.correct ?? ''}`
+                    : data.phase === 'HONOR'
+                      ? 'Vinh danh ghế nóng!'
+                      : 'Trường quay sẵn sàng'}
             </div>
           </div>
         </div>
@@ -650,7 +881,7 @@ export function StageCanvas({
             background: 'linear-gradient(180deg, #0b193d 0%, #060f26 100%)',
             border: '2.5px solid #22d3ee',
             borderRadius: 18,
-            padding: '10px 14px',
+            padding: '10px 12px',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
@@ -666,7 +897,7 @@ export function StageCanvas({
                   background: 'linear-gradient(135deg, #f97316, #ea580c)',
                   color: '#ffffff',
                   fontWeight: 900,
-                  fontSize: 15.5,
+                  fontSize: 15,
                   padding: '3px 10px',
                   borderRadius: 8,
                   border: '1.5px solid #fdba74',
@@ -681,8 +912,8 @@ export function StageCanvas({
                     background: 'rgba(6, 182, 212, 0.18)',
                     color: '#67e8f9',
                     fontWeight: 800,
-                    fontSize: 13,
-                    padding: '3px 9px',
+                    fontSize: 12.5,
+                    padding: '3px 8px',
                     borderRadius: 8,
                     border: '1px solid #06b6d4',
                     whiteSpace: 'nowrap',
@@ -694,15 +925,16 @@ export function StageCanvas({
                 </span>
               )}
               {data.answeredCount != null && (
-                <span style={{ fontSize: 12.5, fontWeight: 800, color: '#fde047', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: 12, fontWeight: 800, color: '#fde047', whiteSpace: 'nowrap' }}>
                   · Đã chốt: {data.answeredCount}
                 </span>
               )}
             </div>
 
-            {/* Đồng hồ đếm ngược nổi bật ngay trên màn hình câu hỏi */}
+            {/* Đồng hồ đếm ngược nổi bật ngay trên màn hình câu hỏi (có âm báo khi còn ≤ 10s) */}
             <div
               data-testid="stage-timer"
+              data-countdown-sfx={lastCountdownSec ?? ''}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -710,8 +942,16 @@ export function StageCanvas({
                 background:
                   data.phase === 'OPEN' && remainSec !== null && remainSec <= 5
                     ? 'linear-gradient(135deg, #dc2626, #991b1b)'
-                    : 'linear-gradient(135deg, #0f172a, #1e293b)',
-                border: `2.5px solid ${data.phase === 'OPEN' ? '#fbbf24' : '#22d3ee'}`,
+                    : data.phase === 'OPEN' && remainSec !== null && remainSec <= 10
+                      ? 'linear-gradient(135deg, #b45309, #78350f)'
+                      : 'linear-gradient(135deg, #0f172a, #1e293b)',
+                border: `2.5px solid ${
+                  data.phase === 'OPEN' && remainSec !== null && remainSec <= 5
+                    ? '#fef08a'
+                    : data.phase === 'OPEN'
+                      ? '#fbbf24'
+                      : '#22d3ee'
+                }`,
                 borderRadius: 99,
                 padding: '3px 12px',
                 boxShadow: '0 0 16px rgba(251, 191, 36, 0.35)',
@@ -734,7 +974,7 @@ export function StageCanvas({
                   style={{
                     fontSize: qFontSize,
                     fontWeight: 800,
-                    lineHeight: 1.26,
+                    lineHeight: 1.24,
                     color: '#ffffff',
                     margin: '4px 0',
                   }}
@@ -743,11 +983,11 @@ export function StageCanvas({
                 </div>
 
                 {/* 4 lựa chọn A, B, C, D — tự động điều chỉnh cỡ chữ khi đáp án dài, không cắt chữ */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
                   {(['A', 'B', 'C', 'D'] as const).map((letter, idx) => {
                     const rawChoice = data.question?.choices?.[idx] ?? '';
                     const isCorrect = data.reveal?.correct === letter;
-                    const choiceFontSize = rawChoice.length > 55 ? 12 : rawChoice.length > 38 ? 13 : rawChoice.length > 24 ? 14.5 : 16;
+                    const choiceFontSize = rawChoice.length > 55 ? 11.2 : rawChoice.length > 38 ? 12.2 : rawChoice.length > 24 ? 13.8 : 15.5;
                     return (
                       <div
                         key={letter}
@@ -758,10 +998,10 @@ export function StageCanvas({
                             : 'linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.92))',
                           border: isCorrect ? '2.5px solid #fde047' : '1.8px solid #0891b2',
                           borderRadius: 12,
-                          padding: '5px 8px',
+                          padding: '5px 7px',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: 7,
+                          gap: 6,
                           minHeight: 54,
                           boxShadow: isCorrect ? '0 0 18px rgba(251, 191, 36, 0.45)' : 'none',
                         }}
@@ -1315,7 +1555,7 @@ export function StageCanvas({
           className={isFreshReward ? 'anim-honor' : undefined}
           style={{
             position: 'absolute',
-            left: 126,
+            left: 202,
             right: 18,
             top: 168,
             background: 'linear-gradient(135deg, rgba(8, 16, 40, 0.98), rgba(23, 37, 84, 0.98))',

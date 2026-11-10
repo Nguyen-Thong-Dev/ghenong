@@ -9,6 +9,115 @@ import React from 'react';
 export type CharacterPose = 'idle' | 'thinking' | 'answered' | 'correct' | 'wrong' | 'departing' | 'entering' | 'mc';
 export type HotSeatVisualState = 'empty' | 'inviting' | 'playing' | 'locked' | 'correct' | 'wrong';
 
+/**
+ * 8 tư thế MC áo trắng chuẩn từ bộ ảnh 1024 × 1536 px (điểm neo chân: x=512, y=1440 => 50% 93.75%):
+ * - 01: đứng tự nhiên khi chờ
+ * - 02: chào mở vòng hoặc đón người lên ghế
+ * - 03: đọc câu hỏi khi âm thanh đọc đề đang phát
+ * - 04: giới thiệu các lựa chọn
+ * - 05: suy nghĩ trong thời gian chờ trả lời
+ * - 06: nhắc còn 5 giây
+ * - 07: ăn mừng khi vinh danh
+ * - 08: động viên sau khi có người bị loại
+ */
+export type McPoseCode = '01' | '02' | '03' | '04' | '05' | '06' | '07' | '08';
+
+export const MC_WHITE_POSES: Record<
+  McPoseCode,
+  { code: McPoseCode; file: string; label: string; badgeColor: string }
+> = {
+  '01': { code: '01', file: '/mc/mc_01_dung.png', label: 'Đứng tự nhiên', badgeColor: '#38bdf8' },
+  '02': { code: '02', file: '/mc/mc_02_chao.png', label: 'Chào & đón ghế', badgeColor: '#fbbf24' },
+  '03': { code: '03', file: '/mc/mc_03_doc_cau_hoi.png', label: 'Đọc câu hỏi', badgeColor: '#22d3ee' },
+  '04': { code: '04', file: '/mc/mc_04_gioi_thieu.png', label: 'Giới thiệu đáp án', badgeColor: '#a78bfa' },
+  '05': { code: '05', file: '/mc/mc_05_suy_nghi.png', label: 'Chờ trả lời', badgeColor: '#67e8f9' },
+  '06': { code: '06', file: '/mc/mc_06_het_gio.png', label: 'Còn ≤ 5 giây!', badgeColor: '#ef4444' },
+  '07': { code: '07', file: '/mc/mc_07_vinh_danh.png', label: 'Vinh danh!', badgeColor: '#fde047' },
+  '08': { code: '08', file: '/mc/mc_08_dong_vien.png', label: 'Động viên', badgeColor: '#fb923c' },
+};
+
+const MC_POSE_LIST = Object.values(MC_WHITE_POSES);
+
+/**
+ * Nhân vật MC áo trắng 8 tư thế (1024 × 1536 px, tỉ lệ khung 2:3).
+ * - Hiển thị toàn bộ khung ảnh 2:3, không tự crop theo nhân vật, cùng chiều rộng/cao CSS cho mọi tư thế.
+ * - Điểm neo chân cố định tại x=512, y=1440 (50% 93.75%).
+ * - Chuyển động thở rất nhẹ (anim-mc-breathe) và chuyển tư thế mềm 240ms (trong khoảng 200–300 ms).
+ * - Không kéo giãn hình để giả lập nói chuyện; chưa làm chớp mắt/miệng.
+ */
+export function McWhiteHost25D({
+  poseCode,
+  width = 172,
+  height = 258,
+  reduceMotion = false,
+}: {
+  poseCode: McPoseCode;
+  width?: number;
+  height?: number;
+  reduceMotion?: boolean;
+}) {
+  const activeMeta = MC_WHITE_POSES[poseCode] ?? MC_WHITE_POSES['01'];
+
+  return (
+    <div
+      data-testid="mc-white-host"
+      data-mc-pose={poseCode}
+      data-mc-file={activeMeta.file}
+      className={reduceMotion ? undefined : 'anim-mc-breathe'}
+      style={{
+        position: 'relative',
+        width,
+        height,
+        flexShrink: 0,
+        transformOrigin: '50% 93.75%',
+        pointerEvents: 'none',
+      }}
+    >
+      {/* Bóng đổ mặt sàn dưới điểm neo bàn chân (y = 93.75% khung 1536px) */}
+      <div
+        style={{
+          position: 'absolute',
+          left: '50%',
+          top: '93.75%',
+          width: Math.round(width * 0.56),
+          height: 14,
+          transform: 'translate(-50%, -45%)',
+          borderRadius: '50%',
+          background: 'radial-gradient(ellipse at center, rgba(34,211,238,0.42) 0%, rgba(0,0,0,0.72) 72%, rgba(0,0,0,0) 100%)',
+          pointerEvents: 'none',
+        }}
+      />
+
+      {/* 8 lớp ảnh PNG RGBA cùng kích thước CSS width × height, chuyển tư thế mượt 240ms */}
+      {MC_POSE_LIST.map((item) => {
+        const isActive = item.code === poseCode;
+        return (
+          <img
+            key={item.code}
+            src={item.file}
+            alt={`MC tư thế ${item.code} - ${item.label}`}
+            draggable={false}
+            className="mc-pose-layer"
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              width,
+              height,
+              display: 'block',
+              opacity: isActive ? 1 : 0,
+              transform: isActive ? 'scale(1)' : 'scale(0.988)',
+              filter: 'drop-shadow(0 8px 14px rgba(0, 0, 0, 0.65))',
+              pointerEvents: 'none',
+              userSelect: 'none',
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 const PALETTES = [
   { shirt: '#2563eb', shirtDark: '#1d4ed8', hair: '#1e293b', accent: '#93c5fd' },
   { shirt: '#db2777', shirtDark: '#be185d', hair: '#3f2314', accent: '#f9a8d4' },
