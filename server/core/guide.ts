@@ -16,7 +16,7 @@ export const GUIDE_COMMANDS = ['VÀO', 'CHỜ', 'SS', 'HỦY', 'NHƯỜNG', 'ĐI
 
 /** Dòng cố định về cách tham gia luôn hiển thị trên sân khấu */
 export const JOIN_LINE =
-  'CÁCH THAM GIA: Bình luận VÀO hoặc mã đáp án (1A..1D) → Tự vào 10 Ghế Chờ & 5 Ghế Nóng';
+  'CÁCH THAM GIA: Bình luận "Vào" để chơi.';
 
 /** Nội dung hiển thị cho người mới vào xem: các lệnh đang được sử dụng hiện tại */
 export const ACTIVE_COMMANDS_TEXT =
@@ -61,7 +61,7 @@ export function buildStageGuide(g: GuideInput): StageGuide {
       return {
         ...base,
         badge: 'CÂU HỎI MỞ',
-        text: `Bình luận ${answerSyntax(c)} — Đúng +${pts}đ, giữ ghế & +1 cấp`,
+        text: `Bình luận ${answerSyntax(c)} để chọn đáp án`,
       };
     }
     case 'PREPARE': {
@@ -76,7 +76,7 @@ export function buildStageGuide(g: GuideInput): StageGuide {
       return {
         ...base,
         badge: 'SẮP MỞ CÂU',
-        text: `Bình luận ${answerSyntax(c)} ngay khi mở đề — Đúng +${pts}đ & +1 cấp`,
+        text: `Bình luận ${answerSyntax(c)} để chọn đáp án ngay khi mở đề`,
       };
     }
     case 'INVITING': {

@@ -132,7 +132,7 @@ function getDynamicGuide(
   tickNow: number,
 ): { fixedJoinLine: string; badge: string; text: string } {
   const DEFAULT_JOIN_LINE =
-    'Tham gia: Bình luận VÀO / CHỜ (tự xếp ghế chờ & lên ghế nóng) · Trả lời: [Mã câu][A/B/C/D] · SS (vào ghế ngay) · HỦY / NHƯỜNG · ĐIỂM / VỊ TRÍ';
+    'CÁCH THAM GIA: Bình luận "Vào" để chơi.';
   if (data.stageGuide) {
     const invExp = data.stageGuide.deadlineAt;
     const invSec =
@@ -152,14 +152,14 @@ function getDynamicGuide(
     case 'OPEN':
       return {
         fixedJoinLine: DEFAULT_JOIN_LINE,
-        badge: 'MỞ CÂU HỎI',
-        text: `Bình luận ${code}A · ${code}B · ${code}C · ${code}D — mã câu lấy từ câu #${code} đang mở`,
+        badge: 'CÂU HỎI MỞ',
+        text: `Bình luận ${code}A · ${code}B · ${code}C · ${code}D để chọn đáp án`,
       };
     case 'PREPARE':
       return {
         fixedJoinLine: DEFAULT_JOIN_LINE,
         badge: 'SẮP MỞ CÂU HỎI',
-        text: `Chuẩn bị gõ: Bình luận ${code}A · ${code}B · ${code}C · ${code}D ngay khi mở đề`,
+        text: `Bình luận ${code}A · ${code}B · ${code}C · ${code}D để chọn đáp án ngay khi mở đề`,
       };
     case 'INVITING':
       return {
@@ -1298,6 +1298,48 @@ export function StageCanvas({
       </div>
 
       {/* ====================================================================
+          3. PHÍA DƯỚI MÀN HÌNH: THÔNG BÁO SỰ KIỆN / QUÀ TẶNG (NẰM GIỮA BẢNG CÂU HỎI VÀ 5 GHẾ NÓNG)
+         ==================================================================== */}
+      {data.notices.length > 0 && (
+        <div
+          data-testid="stage-notices-toast"
+          style={{
+            position: 'absolute',
+            left: 36,
+            right: 36,
+            top: Math.max(96, safe.safeTop + 74) + 348,
+            display: 'flex',
+            justifyContent: 'center',
+            gap: 8,
+            flexWrap: 'wrap',
+            pointerEvents: 'none',
+            zIndex: 25,
+          }}
+        >
+          {data.notices.slice(0, 2).map((n) => (
+            <div
+              key={n.id}
+              style={{
+                background:
+                  n.kind === 'gift'
+                    ? 'linear-gradient(90deg, rgba(234, 88, 12, 0.96), rgba(180, 83, 9, 0.96))'
+                    : 'rgba(8, 16, 40, 0.95)',
+                border: `2px solid ${n.kind === 'gift' ? '#fbbf24' : '#22d3ee'}`,
+                borderRadius: 99,
+                padding: '4px 14px',
+                fontSize: 12.5,
+                fontWeight: 800,
+                color: '#ffffff',
+                boxShadow: '0 6px 18px rgba(0,0,0,0.65)',
+              }}
+            >
+              {n.text}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ====================================================================
           3. PHÍA DƯỚI MÀN HÌNH: ĐÚNG 5 GHẾ NÓNG ĐỎ CAM (Ghế + Nhân vật + Số ghế + Tên + Điểm + Cấp bậc)
          ==================================================================== */}
       <div
@@ -1306,7 +1348,7 @@ export function StageCanvas({
           position: 'absolute',
           left: 14,
           right: 14,
-          top: 454,
+          top: 480,
           height: 274,
           display: 'grid',
           gridTemplateColumns: 'repeat(5, 1fr)',
@@ -1649,47 +1691,6 @@ export function StageCanvas({
             : ` · Tổng ${data.audienceTotal} người đang tham gia`}
         </div>
       </div>
-
-      {/* ====================================================================
-          6. THÔNG BÁO SỰ KIỆN / QUÀ TẶNG GỌN GÀNG
-         ==================================================================== */}
-      {data.notices.length > 0 && (
-        <div
-          style={{
-            position: 'absolute',
-            left: 36,
-            right: 36,
-            bottom: Math.max(18, safe.safeBottom),
-            display: 'flex',
-            justifyContent: 'center',
-            gap: 8,
-            flexWrap: 'wrap',
-            pointerEvents: 'none',
-            zIndex: 20,
-          }}
-        >
-          {data.notices.slice(0, 2).map((n) => (
-            <div
-              key={n.id}
-              style={{
-                background:
-                  n.kind === 'gift'
-                    ? 'linear-gradient(90deg, rgba(234, 88, 12, 0.96), rgba(180, 83, 9, 0.96))'
-                    : 'rgba(8, 16, 40, 0.95)',
-                border: `2px solid ${n.kind === 'gift' ? '#fbbf24' : '#22d3ee'}`,
-                borderRadius: 99,
-                padding: '5px 16px',
-                fontSize: 13,
-                fontWeight: 800,
-                color: '#ffffff',
-                boxShadow: '0 6px 18px rgba(0,0,0,0.65)',
-              }}
-            >
-              {n.text}
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* ====================================================================
           7. HIỆU ỨNG VINH DANH GIỮA MÀN HÌNH TRONG 3 GIÂY (Gộp nhiều người cùng lúc)

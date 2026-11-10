@@ -155,12 +155,12 @@ test('T03: Ghế 2 và 5 sai, ba ghế còn lại đúng — chỉ thay 2 và 5;
     ['sim_06', 'sim_07', 'sim_02', 'sim_05'],
   );
 
-  // Qua REVEAL (5s) + HONOR (3s) + TRANSITION (4s) -> INVITING cho ghế 2 và 5
-  h.advance(5_000);
+  // Qua REVEAL (7s) + HONOR (4.5s) + TRANSITION (5.5s) -> INVITING cho ghế 2 và 5
+  h.advance(7_000);
   assert.equal(h.engine.state.phase, 'HONOR');
-  h.advance(3_000);
+  h.advance(4_500);
   assert.equal(h.engine.state.phase, 'TRANSITION');
-  h.advance(4_000);
+  h.advance(5_500);
   assert.equal(h.engine.state.phase, 'INVITING');
 
   assert.deepEqual(
@@ -192,7 +192,7 @@ test('T04: Cả 5 ghế cùng bị loại — xếp người thay đúng thứ t
   const wrong = q.correct === 'A' ? 'B' : 'A';
   for (let i = 1; i <= 5; i++) h.chat(`sim_${String(i).padStart(2, '0')}`, `${cur.code}${wrong}`);
 
-  h.advance(30_000 + 5_000 + 3_000 + 4_000); // OPEN + REVEAL + HONOR + TRANSITION
+  h.advance(30_000 + 7_000 + 4_500 + 5_500); // OPEN + REVEAL + HONOR + TRANSITION
   assert.equal(h.engine.state.phase, 'INVITING');
   assert.deepEqual(
     h.engine.state.invites.map((inv) => ({ seat: inv.seat, userId: inv.userId })),
@@ -307,7 +307,7 @@ test('T09: Ghế nóng không trả lời — rớt ghế, tắt tự xếp lạ
   const cur1 = h.engine.state.current!;
   const q1 = h.engine.questionById(cur1.questionId)!;
   h.chat('sim_01', `${cur1.code}${q1.correct}`);
-  h.advance(30_000 + 5_000 + 3_000 + 4_000 + 5_000); // sang OPEN câu 2
+  h.advance(30_000 + 7_000 + 4_500 + 5_500 + 5_000); // sang OPEN câu 2
   assert.equal(h.engine.state.phase, 'OPEN');
   assert.equal(h.engine.state.seats[0]?.level, 1);
 
@@ -332,7 +332,7 @@ test('T10: Nhiều người đạt mốc cấp 3 cùng lúc — gộp vào một
       assert.equal(h.chat(`sim_0${i}`, `${cur.code}${q.correct}`).accepted, true);
     }
     h.advance(30_000); // OPEN -> REVEAL
-    h.advance(5_000); // REVEAL -> HONOR
+    h.advance(7_000); // REVEAL -> HONOR
     assert.equal(h.engine.state.phase, 'HONOR');
     if (step === 3) {
       const honor = h.engine.publicView().honor!;
@@ -340,8 +340,8 @@ test('T10: Nhiều người đạt mốc cấp 3 cùng lúc — gộp vào một
       assert.equal(honor.allFloor, true);
       assert.equal(honor.entries.length, 5);
     }
-    h.advance(3_000); // HONOR (đúng 3s) -> TRANSITION
-    h.advance(4_000); // TRANSITION -> PREPARE
+    h.advance(4_500); // HONOR -> TRANSITION
+    h.advance(5_500); // TRANSITION -> PREPARE
     if (step < 3) h.advance(5_000); // PREPARE -> OPEN
   }
   // Câu thứ 4 mở bình thường, nhận đáp án bình thường
@@ -367,7 +367,7 @@ test('T11: Tới cuối hiệp (30 phút) giữa câu — hoàn tất câu vào 
   assert.equal(h.engine.state.session?.round, 1);
   assert.equal(h.engine.state.scores['sim_01']?.roundPoints, 10);
 
-  h.advance(5_000 + 3_000 + 4_000); // REVEAL + HONOR + TRANSITION -> INVITING (mời sim_03 vào ghế 3)
+  h.advance(7_000 + 4_500 + 5_500); // REVEAL + HONOR + TRANSITION -> INVITING (mời sim_03 vào ghế 3)
   h.chat('sim_03', 'ss');
   // Sau khi mời xong -> chốt bảng hiệp 8 giây
   assert.equal(h.engine.state.phase, 'ROUND_BOARD');
@@ -501,16 +501,16 @@ test('T17: Hết ngân hàng câu hỏi — chuyển màn hình nghỉ có cản
   const twoQuestions = SAMPLE_QUESTIONS.slice(0, 2);
   const h = makeHarness(twoQuestions);
   seatPlayersAndOpen(h, ['sim_01']);
-  // Chơi hết câu 1
+  // Chơi hết câu 1 (OPEN + REVEAL + HONOR + TRANSITION + PREPARE)
   const cur1 = h.engine.state.current!;
   const q1 = h.engine.questionById(cur1.questionId)!;
   h.chat('sim_01', `${cur1.code}${q1.correct}`);
-  h.advance(30_000 + 5_000 + 3_000 + 4_000 + 5_000);
+  h.advance(30_000 + 7_000 + 4_500 + 5_500 + 5_000);
   // Chơi hết câu 2
   const cur2 = h.engine.state.current!;
   const q2 = h.engine.questionById(cur2.questionId)!;
   h.chat('sim_01', `${cur2.code}${q2.correct}`);
-  h.advance(30_000 + 5_000 + 3_000 + 4_000);
+  h.advance(30_000 + 7_000 + 4_500 + 5_500);
 
   // Hết câu -> NO_QUESTIONS
   assert.equal(h.engine.state.phase, 'NO_QUESTIONS');
@@ -715,7 +715,7 @@ test('T23: Hướng dẫn trên sân khấu luôn gồm 1 dòng cố định và
 
   // 1) Giai đoạn chờ / mới vào xem
   const viewStandby = h.engine.publicView();
-  assert.ok(viewStandby.stageGuide.fixed.includes('CÁCH THAM GIA:'));
+  assert.ok(viewStandby.stageGuide.fixed.includes('Bình luận "Vào" để chơi.'));
   assert.equal(
     viewStandby.stageGuide.text.includes('Các lệnh đang được sử dụng hiện tại'),
     true,
@@ -739,9 +739,9 @@ test('T23: Hướng dẫn trên sân khấu luôn gồm 1 dòng cố định và
   const code = h.engine.state.current!.code;
   const viewOpen = h.engine.publicView();
   assert.equal(
-    viewOpen.stageGuide.text.includes(`Bình luận ${code}A · ${code}B · ${code}C · ${code}D`),
+    viewOpen.stageGuide.text.includes(`Bình luận ${code}A · ${code}B · ${code}C · ${code}D để chọn đáp án`),
     true,
-    'Khi mở câu hỏi phải hiển thị đúng mã câu đang mở (ví dụ Bình luận 1A · 1B · 1C · 1D)',
+    'Khi mở câu hỏi phải hiển thị đúng mã câu đang mở kèm câu "để chọn đáp án"',
   );
 
   // 4) Giai đoạn Công bố kết quả (REVEAL)
@@ -755,7 +755,7 @@ test('T23: Hướng dẫn trên sân khấu luôn gồm 1 dòng cố định và
   );
 
   // 5) Giai đoạn Chuyển vòng / Chuyển câu (TRANSITION)
-  h.advance(5_000 + 3_000); // hết REVEAL (5s) + HONOR (3s) -> TRANSITION
+  h.advance(7_000 + 4_500); // hết REVEAL (7s) + HONOR (4.5s) -> TRANSITION
   assert.equal(h.engine.state.phase, 'TRANSITION');
   const viewTrans = h.engine.publicView();
   assert.equal(

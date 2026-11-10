@@ -386,15 +386,18 @@ export class GameEngine {
       }
 
       // Khi còn > 5.5 giây: kiểm tra điều kiện phát câu phụ (tối đa 1–2 câu phụ, cách nhau >= 8 giây, giữ vài giây yên tĩnh)
+      // Ưu tiên MC trò chuyện trong thời gian đọc xong đề/đáp án (từ 20s đến 10s còn lại: elapsedOpenMs >= 4_500 và remainPhaseMs >= 9_500)
       const availBefore5s = remainPhaseMs !== null ? remainPhaseMs - 5_000 : Infinity;
       const elapsedOpenMs = now - s.phaseStartedAt;
-      const quietEnough = now >= this.mcDirector.lastSpeechEndAt + 2_200 && elapsedOpenMs >= 5_500;
+      const inChatWindow = remainPhaseMs === null || (remainPhaseMs >= 9_500 && remainPhaseMs <= 22_500);
+      const quietEnough = now >= this.mcDirector.lastSpeechEndAt + 1_500 && elapsedOpenMs >= 4_200;
       const gapEnough = now - this.mcDirector.lastAuxAt >= MIN_AUX_GAP_MS;
 
       if (
         availBefore5s >= 3_600 &&
         quietEnough &&
         gapEnough &&
+        inChatWindow &&
         this.mcDirector.auxCountInQuestion < MAX_AUX_PER_QUESTION
       ) {
         // Ưu tiên 1: Cảm ơn quà đã gom (nếu có)
