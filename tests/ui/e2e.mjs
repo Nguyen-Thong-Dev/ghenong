@@ -89,19 +89,25 @@ try {
   await sleep(900);
 
   // -------------------------------------------------------------------------
-  // KIỂM TRA TƯ THẾ 01: Đứng tự nhiên khi chờ (NO_SESSION)
+  // KIỂM TRA TƯ THẾ 01: Đứng tự nhiên khi chờ (NO_SESSION) & Hướng dẫn 2 dòng cho người mới
   // -------------------------------------------------------------------------
   const pose01 = await stagePage720.getByTestId('mc-white-host').getAttribute('data-mc-pose');
   assert.equal(pose01, '01', 'Khi sân khấu đang chờ (NO_SESSION), MC phải ở tư thế 01 (đứng tự nhiên)');
+  const fixedGuide0 = await stagePage720.getByTestId('guide-fixed-line').textContent();
+  const dynGuide0 = await stagePage720.getByTestId('guide-dynamic-text').textContent();
+  assert.equal(fixedGuide0?.includes('CÁCH THAM GIA'), true, 'Phải có dòng cố định về cách tham gia');
+  assert.equal(dynGuide0?.includes('Các lệnh đang được sử dụng hiện tại'), true, 'Khi chờ phải hiện các lệnh đang được sử dụng hiện tại');
   await stagePage720.screenshot({ path: path.join(outDir, 'mc-pose-01-standby.png') });
 
   // -------------------------------------------------------------------------
-  // KIỂM TRA TƯ THẾ 02: Chào mở vòng hoặc đón người lên ghế (INVITING)
+  // KIỂM TRA TƯ THẾ 02: Chào mở vòng hoặc đón người lên ghế (INVITING) & Hướng dẫn mời ghế
   // -------------------------------------------------------------------------
   await dashPage.getByTestId('btn-start-session').click();
   await sleep(350);
   const pose02 = await stagePage720.getByTestId('mc-white-host').getAttribute('data-mc-pose');
   assert.equal(pose02, '02', 'Khi bắt đầu vòng / đón người lên ghế nóng (INVITING), MC phải ở tư thế 02 (chào)');
+  const dynGuideInvite = await stagePage720.getByTestId('guide-dynamic-text').textContent();
+  assert.equal(dynGuideInvite?.includes('SS') && dynGuideInvite?.includes('s)'), true, 'Khi mời lên ghế phải hiện tên, lệnh SS và số giây còn lại');
   await stagePage720.screenshot({ path: path.join(outDir, 'stage-inviting.png') });
   await stagePage360.screenshot({ path: path.join(outDir, 'stage-360x640-inviting.png') });
 
@@ -142,6 +148,12 @@ try {
   assert.equal(stateOpen1.seats.filter((s) => s.occupant).length, 5, 'Phải có đủ 5 người trên ghế nóng');
   assert.equal(stateOpen1.waiting.length, 10, 'Phải có đủ 10 người trên ghế chờ (2 hàng × 5 ghế)');
   assert.equal(stateOpen1.audience.length >= 30, true, 'Phải có đủ 30 khán giả trong danh sách khán đài');
+  const dynGuideOpen = await stagePage720.getByTestId('guide-dynamic-text').textContent();
+  assert.equal(
+    dynGuideOpen?.includes(`Bình luận ${stateOpen1.question.code}A · ${stateOpen1.question.code}B · ${stateOpen1.question.code}C · ${stateOpen1.question.code}D`),
+    true,
+    'Khi mở câu hỏi phải hiện đúng mã câu đang mở trên dòng hướng dẫn động',
+  );
 
   // Cho 2 ghế nóng (ghế 1 và ghế 3) khóa đáp án trước để thấy rõ trạng thái "ĐÃ KHÓA ĐÁP ÁN"
   const adminOpen1 = await fetch(`${BASE}/api/admin/state`, { headers }).then((r) => r.json());
@@ -214,6 +226,12 @@ try {
 
   const pose08 = await stagePage720.getByTestId('mc-white-host').getAttribute('data-mc-pose');
   assert.equal(pose08, '08', 'Sau khi có người bị loại ở pha REVEAL, MC phải ở tư thế 08 (động viên)');
+  const dynGuideReveal = await stagePage720.getByTestId('guide-dynamic-text').textContent();
+  assert.equal(
+    dynGuideReveal?.includes('+10đ') && dynGuideReveal?.includes('rời ghế'),
+    true,
+    'Khi công bố kết quả phải hiện giải thích đúng được gì, sai/không trả lời đi đâu',
+  );
 
   // Xác minh đèn Spotlight chiến thắng bật sáng ở đúng ghế 1, 3, 4 và không bật ở ghế 2, 5
   assert.equal(await stagePage720.getByTestId('spotlight-correct-1').count(), 1, 'Ghế 1 đúng phải có đèn Spotlight chiếu sáng');

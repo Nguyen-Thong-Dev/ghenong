@@ -68,7 +68,30 @@ export interface StageState {
   roundBoard: { rank: number; userId: string; nickname: string; points: number }[] | null;
   finalBoard: { rank: number; userId: string; nickname: string; points: number }[] | null;
   notices: { id: number; text: string; kind: 'info' | 'gift' | 'system' }[];
-  mc: { id: number; text: string; at: number } | null;
+  mc: {
+    id: number;
+    text: string;
+    at: number;
+    category?:
+      | 'chaoHoi'
+      | 'huongDan'
+      | 'moiLenGhe'
+      | 'choTraLoi'
+      | 'nhacGio'
+      | 'congBoKetQua'
+      | 'dongVien'
+      | 'vinhDanh'
+      | 'camOnQua';
+    templateId?: string;
+    durationMs?: number;
+    isAux?: boolean;
+  } | null;
+  stageGuide?: {
+    fixed: string;
+    badge: string;
+    text: string;
+    deadlineAt: number | null;
+  };
   display: {
     safeTop: number;
     safeBottom: number;
@@ -99,35 +122,70 @@ const PHASE_LABELS: Record<string, string> = {
   ENDED: 'KẾT THÚC PHIÊN',
 };
 
-/** Hướng dẫn chơi ngắn gọn, tự động thay đổi theo trạng thái hiện tại */
-function getDynamicGuide(data: StageState): { badge: string; text: string } {
+/**
+ * Hướng dẫn trên sân khấu đồng bộ 100% với lời MC:
+ * - 1 dòng cố định về cách tham gia (`fixedJoinLine`)
+ * - 1 dòng thay đổi theo giai đoạn (`text` + `badge`)
+ */
+function getDynamicGuide(
+  data: StageState,
+  tickNow: number,
+): { fixedJoinLine: string; badge: string; text: string } {
+  const DEFAULT_JOIN_LINE =
+    'Tham gia: Bình luận VÀO / CHỜ (tự xếp ghế chờ & lên ghế nóng) · Trả lời: [Mã câu][A/B/C/D] · SS (vào ghế ngay) · HỦY / NHƯỜNG · ĐIỂM / VỊ TRÍ';
+  if (data.stageGuide) {
+    const invExp = data.stageGuide.deadlineAt;
+    const invSec =
+      invExp != null
+        ? Math.max(0, Math.ceil((invExp - tickNow) / 1000))
+        : data.phaseEndsAt != null
+          ? Math.max(0, Math.ceil((data.phaseEndsAt - tickNow) / 1000))
+          : 12;
+    return {
+      fixedJoinLine: data.stageGuide.fixed || DEFAULT_JOIN_LINE,
+      badge: data.stageGuide.badge,
+      text: data.stageGuide.text.replace(/\{sec\}/g, String(invSec)),
+    };
+  }
   const code = data.question?.code ?? 1;
   switch (data.phase) {
     case 'OPEN':
       return {
-        badge: 'CÚ PHÁP TRẢ LỜI',
-        text: `Bình luận ${code}A · ${code}B · ${code}C · ${code}D (Đúng +10đ & +1 cấp)`,
+        fixedJoinLine: DEFAULT_JOIN_LINE,
+        badge: 'MỞ CÂU HỎI',
+        text: `Bình luận ${code}A · ${code}B · ${code}C · ${code}D — mã câu lấy từ câu #${code} đang mở`,
       };
     case 'PREPARE':
       return {
-        badge: 'CHUẨN BỊ',
-        text: `Sắp mở Câu #${code} — Sẵn sàng gõ ${code}A / ${code}B / ${code}C / ${code}D`,
+        fixedJoinLine: DEFAULT_JOIN_LINE,
+        badge: 'SẮP MỞ CÂU HỎI',
+        text: `Chuẩn bị gõ: Bình luận ${code}A · ${code}B · ${code}C · ${code}D ngay khi mở đề`,
       };
     case 'INVITING':
       return {
-        badge: 'LÊN GHẾ NÓNG',
-        text: 'Ghế Chờ tự động vào Ghế Nóng sau 12s · Gõ HỦY nếu nhường',
+        fixedJoinLine: DEFAULT_JOIN_LINE,
+        badge: 'MỜI LÊN GHẾ',
+        text: 'Ghế Chờ tự động vào Ghế Nóng sau 12s · Gõ SS vào ngay hoặc HỦY nếu nhường',
       };
     case 'REVEAL':
     case 'HONOR':
       return {
-        badge: 'LUẬT GHẾ NÓNG',
-        text: 'Đúng: Giữ ghế +10đ & tăng cấp · Sai/Hết giờ: Nhường ghế',
+        fixedJoinLine: DEFAULT_JOIN_LINE,
+        badge: 'KẾT QUẢ & LUẬT GHẾ',
+        text: 'Đúng: +10đ, giữ ghế nóng & +1 cấp · Sai: rời ghế, về cuối hàng chờ · Không trả lời: rời ghế, tắt tự xếp lại',
+      };
+    case 'TRANSITION':
+    case 'ROUND_BOARD':
+      return {
+        fixedJoinLine: DEFAULT_JOIN_LINE,
+        badge: 'LUẬT TÍNH THÀNH TÍCH',
+        text: 'Mỗi câu đúng +10đ (cả ghế nóng & khán giả) · Giữ ghế đạt mốc cấp 3, 5, 10, 15 nhận Huy hiệu Vinh danh!',
       };
     default:
       return {
-        badge: 'HƯỚNG DẪN NHANH',
-        text: 'Tự động vào 10 Ghế Chờ & 5 Ghế Nóng · Gõ ĐIỂM / VỊ TRÍ',
+        fixedJoinLine: DEFAULT_JOIN_LINE,
+        badge: 'LỆNH ĐANG DÙNG',
+        text: 'Các lệnh đang được sử dụng hiện tại: VÀO · CHỜ · [Mã câu][A/B/C/D] · SS · HỦY · NHƯỜNG · ĐIỂM · VỊ TRÍ',
       };
   }
 }
@@ -477,6 +535,21 @@ export function StageCanvas({
     }
   }, [data, remainSec]);
 
+  // Nhạc nền suy nghĩ nhẹ trong khoảng lặng khi mở câu hỏi (còn > 5s), tự động giảm nhỏ khi MC đang nói
+  const isMcLineActive = Boolean(
+    data?.mc &&
+      tickNow - data.mc.at >= -500 &&
+      tickNow - data.mc.at < (data.mc.durationMs ?? 4000),
+  );
+  useEffect(() => {
+    const bgmActive = Boolean(data && data.phase === 'OPEN' && (remainSec === null || remainSec > 5));
+    const bgmDucked = Boolean(mcSpeaking || isMcLineActive);
+    stageSfx.updateThinkingBgm(bgmActive, bgmDucked);
+    return () => {
+      if (!bgmActive) stageSfx.updateThinkingBgm(false, false);
+    };
+  }, [data?.phase, remainSec, mcSpeaking, isMcLineActive]);
+
   if (!data) {
     return (
       <div
@@ -502,7 +575,7 @@ export function StageCanvas({
   const currentFxKey = `${data.question?.code ?? 0}:${data.phase}:${data.phaseStartedAt}`;
   const isReloadedOldPhase = reloadedFxKey === currentFxKey;
   const isFreshReward = !reduceMotion && freshRewardKey === currentFxKey && !isReloadedOldPhase;
-  const guide = getDynamicGuide(data);
+  const guide = getDynamicGuide(data, tickNow);
 
   const elapsedPhaseMs = Math.max(0, tickNow - data.phaseStartedAt);
   const sinceQuestionSpeechEndMs =
@@ -842,32 +915,49 @@ export function StageCanvas({
             <McWhiteHost25D poseCode={mcPose} width={168} height={252} reduceMotion={reduceMotion} />
           </div>
 
-          {/* Bục đứng MC 2.5D + Trạng thái dẫn ngắn gọn */}
+          {/* Bục đứng MC 2.5D + Lời dẫn tình huống hiện tại (hoặc trạng thái yên tĩnh suy nghĩ) */}
           <div
             style={{
               width: '100%',
               background: 'linear-gradient(180deg, #1e3a8a 0%, #0f172a 100%)',
               border: '1.5px solid #22d3ee',
               borderRadius: 10,
-              padding: '4px 5px',
+              padding: '3px 5px',
               textAlign: 'center',
+              overflow: 'hidden',
             }}
           >
             <div style={{ fontSize: 9.5, fontWeight: 900, color: '#fde047', whiteSpace: 'nowrap' }}>
               {mcPoseMeta.label.toUpperCase()}
             </div>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: '#e0f2fe', marginTop: 1, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
-              {data.phase === 'OPEN'
-                ? remainSec !== null && remainSec <= 5
-                  ? `⚠️ Sắp hết giờ (${remainSec}s)!`
-                  : `Đang mở Câu #${data.question?.code}`
-                : data.phase === 'INVITING'
-                  ? 'Đón người lên ghế (12s)'
-                  : data.phase === 'REVEAL'
-                    ? `Đáp án đúng: ${data.reveal?.correct ?? ''}`
-                    : data.phase === 'HONOR'
-                      ? 'Vinh danh ghế nóng!'
-                      : 'Trường quay sẵn sàng'}
+            <div
+              data-testid="stage-mc-speech"
+              style={{
+                fontSize: 9.8,
+                fontWeight: 700,
+                color: '#e0f2fe',
+                marginTop: 1,
+                lineHeight: 1.15,
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+                minHeight: 22,
+              }}
+            >
+              {isMcLineActive && !isReloadedOldPhase && data.mc?.text
+                ? `“${data.mc.text}”`
+                : data.phase === 'OPEN'
+                  ? remainSec !== null && remainSec <= 5
+                    ? `⚠️ Sắp hết giờ (${remainSec}s)!`
+                    : `🤫 Yên tĩnh suy nghĩ Câu #${data.question?.code}`
+                  : data.phase === 'INVITING'
+                    ? 'Đón người lên ghế (12s)'
+                    : data.phase === 'REVEAL'
+                      ? `Đáp án đúng: ${data.reveal?.correct ?? ''}`
+                      : data.phase === 'HONOR'
+                        ? 'Vinh danh ghế nóng!'
+                        : 'Trường quay sẵn sàng'}
             </div>
           </div>
         </div>
@@ -881,11 +971,12 @@ export function StageCanvas({
             background: 'linear-gradient(180deg, #0b193d 0%, #060f26 100%)',
             border: '2.5px solid #22d3ee',
             borderRadius: 18,
-            padding: '10px 12px',
+            padding: '8px 12px',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
             boxShadow: '0 14px 32px rgba(0,0,0,0.7), inset 0 0 28px rgba(6, 182, 212, 0.16)',
+            overflow: 'hidden',
           }}
         >
           {/* Thanh đầu màn hình câu hỏi: Mã câu + Chủ đề + ĐỒNG HỒ RÕ RÀNG */}
@@ -974,20 +1065,20 @@ export function StageCanvas({
                   style={{
                     fontSize: qFontSize,
                     fontWeight: 800,
-                    lineHeight: 1.24,
+                    lineHeight: 1.22,
                     color: '#ffffff',
-                    margin: '4px 0',
+                    margin: '2px 0',
                   }}
                 >
                   {data.question.text}
                 </div>
 
                 {/* 4 lựa chọn A, B, C, D — tự động điều chỉnh cỡ chữ khi đáp án dài, không cắt chữ */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
                   {(['A', 'B', 'C', 'D'] as const).map((letter, idx) => {
                     const rawChoice = data.question?.choices?.[idx] ?? '';
                     const isCorrect = data.reveal?.correct === letter;
-                    const choiceFontSize = rawChoice.length > 55 ? 11.2 : rawChoice.length > 38 ? 12.2 : rawChoice.length > 24 ? 13.8 : 15.5;
+                    const choiceFontSize = rawChoice.length > 55 ? 11.2 : rawChoice.length > 38 ? 12.2 : rawChoice.length > 24 ? 13.8 : 15.2;
                     return (
                       <div
                         key={letter}
@@ -998,23 +1089,23 @@ export function StageCanvas({
                             : 'linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.92))',
                           border: isCorrect ? '2.5px solid #fde047' : '1.8px solid #0891b2',
                           borderRadius: 12,
-                          padding: '5px 7px',
+                          padding: '4px 7px',
                           display: 'flex',
                           alignItems: 'center',
                           gap: 6,
-                          minHeight: 54,
+                          minHeight: data.reveal ? 45 : 50,
                           boxShadow: isCorrect ? '0 0 18px rgba(251, 191, 36, 0.45)' : 'none',
                         }}
                       >
                         <span
                           style={{
-                            width: 32,
-                            height: 32,
+                            width: 30,
+                            height: 30,
                             borderRadius: 8,
                             background: isCorrect ? '#fde047' : '#f97316',
                             color: isCorrect ? '#090d1b' : '#ffffff',
                             fontWeight: 900,
-                            fontSize: 14.5,
+                            fontSize: 14,
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -1029,7 +1120,7 @@ export function StageCanvas({
                             fontSize: choiceFontSize,
                             fontWeight: 700,
                             color: '#f8fafc',
-                            lineHeight: 1.18,
+                            lineHeight: 1.16,
                           }}
                         >
                           {rawChoice}
@@ -1087,17 +1178,17 @@ export function StageCanvas({
             </div>
           )}
 
-          {/* Thanh đáy màn hình câu hỏi: Giải thích đáp án HOẶC Hướng dẫn chơi ngắn gọn theo trạng thái */}
-          {data.reveal ? (
+          {/* Giải thích đáp án ngắn gọn khi công bố kết quả */}
+          {data.reveal && (
             <div
               data-testid="question-explanation"
               style={{
-                marginTop: 4,
-                padding: '5px 10px',
-                borderRadius: 10,
+                marginTop: 2,
+                padding: '2px 8px',
+                borderRadius: 7,
                 background: 'rgba(5, 150, 105, 0.32)',
-                border: '1.5px solid #34d399',
-                fontSize: 13,
+                border: '1px solid #34d399',
+                fontSize: 11.2,
                 color: '#ecfdf5',
                 fontWeight: 700,
                 whiteSpace: 'nowrap',
@@ -1108,36 +1199,90 @@ export function StageCanvas({
               ✅ Đáp án {data.reveal.correct}: {data.reveal.explanation} ({data.reveal.totalCorrect}/
               {data.reveal.totalAnswers} đúng)
             </div>
-          ) : (
+          )}
+
+          {/* Khung hướng dẫn 2 dòng đồng bộ với lời MC:
+              - Dòng 1 cố định: Cách tham gia & hệ thống lệnh
+              - Dòng 2 thay đổi theo giai đoạn: Mới vào / Mở câu hỏi / Mời lên ghế / Công bố kết quả / Chuyển vòng */}
+          <div
+            data-testid="command-guide-box"
+            style={{
+              marginTop: 2,
+              padding: '4px 8px',
+              borderRadius: 10,
+              background: 'rgba(15, 23, 42, 0.94)',
+              border: '1.5px solid #fbbf24',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2,
+            }}
+          >
+            {/* Dòng 1 cố định: Cách tham gia */}
             <div
-              data-testid="command-guide-box"
+              data-testid="guide-fixed-line"
               style={{
-                marginTop: 4,
-                padding: '5px 10px',
-                borderRadius: 10,
-                background: 'rgba(15, 23, 42, 0.92)',
-                border: '1.5px solid #fbbf24',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8,
+                gap: 6,
+                minWidth: 0,
               }}
             >
               <span
                 style={{
+                  background: '#0e7490',
+                  color: '#ecfeff',
+                  fontSize: 9.2,
+                  fontWeight: 900,
+                  padding: '1px 5px',
+                  borderRadius: 4,
+                  border: '1px solid #22d3ee',
+                  flexShrink: 0,
+                }}
+              >
+                CÁCH THAM GIA
+              </span>
+              <span
+                style={{
+                  fontSize: 10.2,
+                  fontWeight: 700,
+                  color: '#cbd5e1',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {guide.fixedJoinLine.replace(/^CÁCH THAM GIA:\s*/i, '')}
+              </span>
+            </div>
+
+            {/* Dòng 2 thay đổi theo giai đoạn */}
+            <div
+              data-testid="guide-dynamic-line"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                minWidth: 0,
+              }}
+            >
+              <span
+                data-testid="guide-dynamic-badge"
+                style={{
                   background: '#fbbf24',
                   color: '#090d1b',
-                  fontSize: 10.5,
+                  fontSize: 9.8,
                   fontWeight: 900,
-                  padding: '2px 7px',
-                  borderRadius: 6,
+                  padding: '1px 6px',
+                  borderRadius: 4,
                   flexShrink: 0,
                 }}
               >
                 {guide.badge}
               </span>
               <span
+                data-testid="guide-dynamic-text"
                 style={{
-                  fontSize: 12.5,
+                  fontSize: 11.5,
                   fontWeight: 800,
                   color: '#fef3c7',
                   whiteSpace: 'nowrap',
@@ -1148,7 +1293,7 @@ export function StageCanvas({
                 {guide.text}
               </span>
             </div>
-          )}
+          </div>
         </div>
       </div>
 

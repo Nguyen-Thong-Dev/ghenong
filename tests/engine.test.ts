@@ -10,6 +10,13 @@ import os from 'os';
 import { Store } from '../server/store/db';
 import { GameEngine } from '../server/core/engine';
 import { SAMPLE_QUESTIONS, SIM_PROFILES } from '../server/data/samples';
+import {
+  MC_DIALOGUE_BANK,
+  MAX_AUX_PER_QUESTION,
+  MIN_AUX_GAP_MS,
+  NAME_CALL_COOLDOWN_MS,
+  type McCategory,
+} from '../server/core/mcDirector';
 import type { InboundEvent, Question } from '../server/core/types';
 
 function makeHarness(customQuestions?: Question[], dbFile = ':memory:', startClock = 1_000_000) {
@@ -531,4 +538,229 @@ test('T18: Nhường ghế sau khi đã gửi đáp án — đáp án đúng v�
   // sim_01 vẫn nhận +10 điểm vai khán giả, không có cấp ghế nóng
   assert.equal(h.engine.state.scores['sim_01']?.sessionPoints, 10);
   assert.equal(h.engine.players.get('sim_01')?.bestLevelAll, 0);
+});
+
+test('T19: Ngân hàng lời thoại MC có điều kiện (180 câu / 9 nhóm) — xáo trộn hết nhóm mới lặp lại và tránh lặp kiểu đùa liên tiếp', () => {
+  assert.equal(MC_DIALOGUE_BANK.length >= 150 && MC_DIALOGUE_BANK.length <= 200, true);
+  assert.equal(MC_DIALOGUE_BANK.length, 180);
+  const categories: McCategory[] = [
+    'chaoHoi',
+    'huongDan',
+    'moiLenGhe',
+    'choTraLoi',
+    'nhacGio',
+    'congBoKetQua',
+    'dongVien',
+    'vinhDanh',
+    'camOnQua',
+  ];
+  for (const cat of categories) {
+    const items = MC_DIALOGUE_BANK.filter((t) => t.category === cat);
+    assert.equal(items.length, 20, `Nhóm ${cat} phải có đúng 20 mẫu câu có điều kiện`);
+    for (const item of items) {
+      const minDur = cat === 'nhacGio' ? 2500 : 3000;
+      assert.equal(item.durationMs >= minDur && item.durationMs <= 6000, true, `Thời lượng ${item.id} phải hợp lệ`);
+      assert.equal(item.cooldownMs >= 30_000, true, `Thời gian nghỉ tối thiểu của ${item.id} phải hợp lệ`);
+      assert.equal(Boolean(item.situation && item.jokeStyle), true);
+    }
+  }
+
+  // Kiểm tra xáo trộn túi (shuffle-bag): dùng hết tất cả câu phù hợp (5/5 câu trong ngữ cảnh này) trước khi nạp túi mới
+  const h = makeHarness();
+  seatPlayersAndOpen(h, ['sim_01', 'sim_02', 'sim_03', 'sim_04', 'sim_05']);
+  const cur = h.engine.state.current!;
+  const q = h.engine.questionById(cur.questionId)!;
+  h.chat('sim_01', `${cur.code}${q.correct}`);
+  h.chat('sim_02', `${cur.code}${q.correct}`);
+
+  const seenChoIds = new Set<string>();
+  let clock = h.getClock();
+  for (let i = 0; i < 5; i++) {
+    clock += 10_000;
+    const ctx = h.engine.buildMcContext();
+    const res = h.engine.mcDirector.pickAndRender('choTraLoi', ctx, { isAux: false, now: clock });
+    assert.ok(res, 'Phải chọn được câu phù hợp với dữ liệu thật');
+    assert.equal(seenChoIds.has(res.templateId), false, `Không được lặp lại mẫu câu ${res.templateId} khi chưa dùng hết các câu phù hợp`);
+    seenChoIds.add(res.templateId);
+  }
+  assert.equal(seenChoIds.size, 5);
+
+  // Kiểm tra nhóm nhacGio (có >= 15 câu phù hợp cùng lúc): rút 12 lần liên tiếp không trùng câu nào và không lặp jokeStyle liên tiếp
+  const seenGioIds = new Set<string>();
+  let prevStyle = '';
+  for (let i = 0; i < 12; i++) {
+    clock += 10_000;
+    const ctx = h.engine.buildMcContext();
+    const res = h.engine.mcDirector.pickAndRender('nhacGio', ctx, { isAux: false, now: clock });
+    assert.ok(res);
+    assert.equal(seenGioIds.has(res.templateId), false, `Nhóm nhacGio không được lặp lại ${res.templateId} trước khi rút hết túi`);
+    seenGioIds.add(res.templateId);
+    const tpl = MC_DIALOGUE_BANK.find((t) => t.id === res.templateId)!;
+    if (prevStyle && prevStyle !== 'fact' && tpl.jokeStyle !== 'fact') {
+      assert.notEqual(tpl.jokeStyle, prevStyle, 'Không lặp cùng một kiểu đùa (jokeStyle) ở 2 lượt liên tiếp');
+    }
+    prevStyle = tpl.jokeStyle;
+  }
+});
+
+test('T20: Kỷ luật phát ngôn MC trong pha OPEN — dữ liệu thật 100%, tối đa 2 câu phụ cách nhau >= 8s, <= 5s ngừng chào/quà/đùa để nhắc giờ', () => {
+  const h = makeHarness();
+  seatPlayersAndOpen(h, ['sim_01', 'sim_02', 'sim_03', 'sim_04', 'sim_05']);
+
+  // Khi chưa có ai trả lời (answeredCount = 0), MC tuyệt đối không được nói "cả phòng trả lời rồi" hay "5/5 ghế đã chốt"
+  const ctxZero = h.engine.buildMcContext();
+  assert.equal(ctxZero.answeredCount, 0);
+  assert.equal(ctxZero.hotAnsweredCount, 0);
+  const lineZero = h.engine.mcDirector.pickAndRender('choTraLoi', ctxZero, { isAux: false, now: h.getClock() + 6000 });
+  assert.ok(lineZero);
+  assert.equal(/5\/5|cả 5 ghế nóng đều đã khóa|toàn bộ 5 ghế/i.test(lineZero.text), false);
+
+  // Trong 1 câu hỏi (30s OPEN): đếm số câu phụ MC tự phát qua tick()
+  const auxLines: { text: string; at: number; category?: string }[] = [];
+  let lastMcId = h.engine.publicView().mc?.id ?? 0;
+
+  // Cho quà và người mới liên tục trong lúc OPEN
+  h.gift('sim_10', 'Hoa hồng', 2, 10);
+  h.chat('new_user_1', 'vào', 'Bạn Mới Một');
+  h.chat('new_user_2', 'vào', 'Bạn Mới Hai');
+
+  // Tiến dần từng giây đến lúc còn 6 giây (tức đã qua 24 giây của pha OPEN 30s)
+  for (let sec = 1; sec <= 24; sec++) {
+    h.advance(1_000);
+    const mc = h.engine.publicView().mc;
+    if (mc && mc.id !== lastMcId) {
+      lastMcId = mc.id;
+      if (mc.isAux) {
+        auxLines.push({ text: mc.text, at: mc.at, category: mc.category });
+      }
+    }
+  }
+
+  assert.equal(auxLines.length <= MAX_AUX_PER_QUESTION, true, `Trong 1 câu hỏi chỉ tối đa ${MAX_AUX_PER_QUESTION} câu phụ`);
+  if (auxLines.length === 2) {
+    assert.equal(auxLines[1].at - auxLines[0].at >= MIN_AUX_GAP_MS, true, 'Hai câu phụ phải cách nhau ít nhất 8 giây');
+  }
+
+  // Khi còn <= 5 giây: thêm quà & người mới -> MC phải NGỪNG chào hỏi/cảm ơn quà và chỉ ưu tiên phát nhắc giờ (nhacGio)
+  h.gift('sim_11', 'Siêu xe', 5, 500);
+  h.chat('new_user_3', 'vào', 'Bạn Mới Ba');
+  h.advance(1_500); // Lúc này còn ~4.5 giây (<= 5s)
+  const mcAt5s = h.engine.publicView().mc;
+  assert.ok(mcAt5s);
+  assert.equal(mcAt5s.category, 'nhacGio', 'Khi còn <= 5 giây phải ưu tiên phát câu nhắc hết giờ (nhacGio)');
+});
+
+test('T21: Chào người mới theo tương tác hợp lệ đầu tiên, gom 2–3 tên khi đông, và kiểm tra lại vị trí thực tế ngay trước khi phát', () => {
+  const h = makeHarness();
+  seatPlayersAndOpen(h, ['sim_01', 'sim_02']);
+
+  // Bình luận thường (không phải lệnh hợp lệ) -> KHÔNG xếp vào hàng đợi chào người mới
+  const beforePending = h.engine.mcDirector.pendingWelcomes.length;
+  h.chat('viewer_chat_only', 'haha vui quá anh ơi', 'Khán Giả Xem');
+  assert.equal(h.engine.mcDirector.pendingWelcomes.length, beforePending, 'Bình luận không phải lệnh hợp lệ thì không chào như người chơi mới');
+
+  // 4 người mới tương tác hợp lệ liên tiếp -> gom tối đa 3 tên vào 1 lời chào
+  h.chat('fresh_01', 'chờ', 'An Nguyễn');
+  h.chat('fresh_02', 'chờ', 'Bình Trần');
+  h.chat('fresh_03', 'chờ', 'Châu Lê');
+  h.chat('fresh_04', 'chờ', 'Dũng Phạm');
+  assert.equal(h.engine.mcDirector.pendingWelcomes.length >= 4, true);
+
+  // Giả sử trước khi MC kịp chào, fresh_01 đã bấm "hủy" rời khỏi hàng chờ -> MC kiểm tra lại điều kiện phải cập nhật/bỏ vị trí cũ
+  h.chat('fresh_01', 'hủy', 'An Nguyễn');
+  const posCheck = h.engine.resolvePlayerPositionForMc('fresh_01');
+  assert.equal(posCheck.currentPosNote, null, 'Người chơi đã hủy hàng chờ thì vị trí thực tế phải là null (bỏ vị trí cũ)');
+
+  const batch = h.engine.mcDirector.consumeWelcomeBatch((uid) => h.engine.resolvePlayerPositionForMc(uid), h.getClock());
+  assert.ok(batch);
+  assert.equal(batch.count <= 3, true, 'Mỗi lời chào chỉ gom tối đa 2–3 tên');
+  assert.equal(batch.namesText.includes('An Nguyễn'), true);
+  assert.equal(batch.positionNote.includes('ghế chờ số'), true, 'Vị trí đọc lên phải lấy từ vị trí thực tế hiện tại');
+});
+
+test('T22: Gom lời cảm ơn quà liên tiếp, thời gian nghỉ gọi tên từng người và tự hủy lời chào/cảm ơn quá cũ', () => {
+  const h = makeHarness();
+  seatPlayersAndOpen(h, ['sim_01']);
+
+  const t0 = h.getClock();
+  // Một người tặng quà dồn dập nhiều lần liên tiếp
+  h.engine.mcDirector.enqueueGift('gifter_1', 'Hoàng Đại Gia', 'Hoa hồng', 3, t0);
+  h.engine.mcDirector.enqueueGift('gifter_1', 'Hoàng Đại Gia', 'Hoa hồng', 7, t0 + 500);
+  h.engine.mcDirector.enqueueGift('gifter_2', 'Lan Ngọc', 'Tim lửa', 2, t0 + 800);
+
+  const batch1 = h.engine.mcDirector.consumeGiftBatch(t0 + 1000);
+  assert.ok(batch1);
+  assert.equal(batch1.totalCount, 12, 'Phải cộng dồn tổng số lượng quà liên tiếp');
+  assert.equal(batch1.sendersText.includes('Hoàng Đại Gia'), true);
+
+  // Ngay sau khi vừa được gọi tên, gifter_1 tặng tiếp -> đang trong thời gian nghỉ gọi tên (NAME_CALL_COOLDOWN_MS) nên chưa gọi lại ngay
+  h.engine.mcDirector.enqueueGift('gifter_1', 'Hoàng Đại Gia', 'Hoa hồng', 1, t0 + 2000);
+  assert.equal(h.engine.mcDirector.canCallUserName('gifter_1', t0 + 2000), false);
+  const blockedBatch = h.engine.mcDirector.consumeGiftBatch(t0 + 2000);
+  assert.equal(blockedBatch, null, 'Không gọi tên dồn dập cùng một người khi đang trong thời gian nghỉ');
+
+  // Sau khi qua thời gian nghỉ (hoặc quá hạn MAX_PENDING_AGE_MS = 25s), hàng đợi quá cũ tự động bị hủy để không kéo dài vài phút
+  h.engine.mcDirector.enqueueGift('stale_user', 'Người Cũ', 'Quà Cũ', 1, t0);
+  h.engine.mcDirector.pruneStaleQueues(t0 + 30_000);
+  assert.equal(
+    h.engine.mcDirector.pendingGifts.some((g) => g.userId === 'stale_user'),
+    false,
+    'Lời cảm ơn/chào hỏi quá cũ phải tự động bị hủy',
+  );
+  assert.equal(h.engine.mcDirector.canCallUserName('gifter_1', t0 + 1000 + NAME_CALL_COOLDOWN_MS + 100), true);
+});
+
+test('T23: Hướng dẫn trên sân khấu luôn gồm 1 dòng cố định và 1 dòng thay đổi đúng theo từng giai đoạn, đồng bộ với lời MC', () => {
+  const h = makeHarness();
+
+  // 1) Giai đoạn chờ / mới vào xem
+  const viewStandby = h.engine.publicView();
+  assert.ok(viewStandby.stageGuide.fixed.includes('CÁCH THAM GIA:'));
+  assert.equal(
+    viewStandby.stageGuide.text.includes('Các lệnh đang được sử dụng hiện tại'),
+    true,
+    'Khi chờ / người mới vào xem phải hiển thị "Các lệnh đang được sử dụng hiện tại"',
+  );
+
+  // 2) Giai đoạn Mời lên ghế (INVITING)
+  h.chat('sim_01', 'chờ');
+  h.chat('sim_02', 'chờ');
+  h.engine.startSession('admin');
+  assert.equal(h.engine.state.phase, 'INVITING');
+  const viewInvite = h.engine.publicView();
+  assert.equal(viewInvite.stageGuide.badge, 'MỜI LÊN GHẾ');
+  assert.equal(viewInvite.stageGuide.text.includes('SS'), true, 'Phải hiển thị lệnh xác nhận SS');
+  assert.equal(viewInvite.stageGuide.text.includes('{sec}s'), true, 'Phải có số giây đếm ngược');
+
+  // 3) Giai đoạn Mở câu hỏi (OPEN)
+  h.advance(12_500); // hết 12s INVITING -> PREPARE
+  h.advance(5_000); // hết PREPARE -> OPEN
+  assert.equal(h.engine.state.phase, 'OPEN');
+  const code = h.engine.state.current!.code;
+  const viewOpen = h.engine.publicView();
+  assert.equal(
+    viewOpen.stageGuide.text.includes(`Bình luận ${code}A · ${code}B · ${code}C · ${code}D`),
+    true,
+    'Khi mở câu hỏi phải hiển thị đúng mã câu đang mở (ví dụ Bình luận 1A · 1B · 1C · 1D)',
+  );
+
+  // 4) Giai đoạn Công bố kết quả (REVEAL)
+  h.advance(30_000); // hết 30s OPEN -> REVEAL
+  assert.equal(h.engine.state.phase, 'REVEAL');
+  const viewReveal = h.engine.publicView();
+  assert.equal(
+    viewReveal.stageGuide.text.includes('+10đ') && viewReveal.stageGuide.text.includes('rời ghế'),
+    true,
+    'Khi công bố kết quả phải giải thích ngắn đúng được gì, sai/không trả lời đi đâu',
+  );
+
+  // 5) Giai đoạn Chuyển vòng / Chuyển câu (TRANSITION)
+  h.advance(5_000 + 3_000); // hết REVEAL (5s) + HONOR (3s) -> TRANSITION
+  assert.equal(h.engine.state.phase, 'TRANSITION');
+  const viewTrans = h.engine.publicView();
+  assert.equal(
+    viewTrans.stageGuide.text.includes('vinh danh') || viewTrans.stageGuide.text.includes('Thắng vòng'),
+    true,
+    'Khi chuyển vòng phải hiển thị cách tính thành tích / điều kiện thắng theo luật đang dùng',
+  );
 });

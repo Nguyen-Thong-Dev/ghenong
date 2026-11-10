@@ -153,6 +153,34 @@ class StageSfx {
       this.tone(783.99, 65, 'sine', 0.065);
     }
   }
+
+  private bgmTimer: ReturnType<typeof setInterval> | null = null;
+  private bgmStep = 0;
+  private bgmDucked = false;
+
+  /**
+   * Nhạc nền suy nghĩ rất nhẹ (ambient gameshow pulse) trong các khoảng yên tĩnh lúc chờ trả lời,
+   * giúp khoảng lặng bớt trống mà không làm phân tâm. Tự động giảm nhỏ/ngắt khi MC đang nói hoặc khi còn <= 5 giây.
+   */
+  updateThinkingBgm(active: boolean, ducked: boolean) {
+    this.bgmDucked = ducked;
+    if (!active || !this.enabled) {
+      if (this.bgmTimer) {
+        clearInterval(this.bgmTimer);
+        this.bgmTimer = null;
+      }
+      return;
+    }
+    if (this.bgmTimer) return;
+    const notes = [261.63, 329.63, 392.0, 329.63, 293.66, 349.23, 440.0, 349.23];
+    this.bgmTimer = setInterval(() => {
+      if (!this.enabled) return;
+      const note = notes[this.bgmStep % notes.length];
+      this.bgmStep++;
+      const gain = this.bgmDucked ? 0.008 : 0.022;
+      this.tone(note, 420, 'sine', gain);
+    }, 950);
+  }
 }
 
 export const stageSfx = new StageSfx();

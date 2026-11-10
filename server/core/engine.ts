@@ -9,6 +9,15 @@ import { DEFAULT_RULES, RULES_VERSION, rankTitle, SHORT_RULES, type DisplayConfi
 import { parseCommand, SYNTAX_HINT, type Command } from './commands';
 import { pickQuestion, validateQuestion } from './questions';
 import { safeDisplayName, shortName, speakableName } from './filter';
+import { buildStageGuide, joinVi } from './guide';
+import {
+  GUIDE_REMINDER_INTERVAL_MS,
+  MAX_AUX_PER_QUESTION,
+  McDirector,
+  MIN_AUX_GAP_MS,
+  type McCategory,
+  type McDataContext,
+} from './mcDirector';
 import type { Store, ResultRow } from '../store/db';
 import type {
   CommandOutcome,
@@ -41,6 +50,10 @@ export interface McLine {
   id: number;
   text: string;
   at: number;
+  category?: McCategory;
+  templateId?: string;
+  durationMs?: number;
+  isAux?: boolean;
 }
 
 const ACTIVE_PHASES: Phase[] = ['TRANSITION', 'INVITING', 'PREPARE', 'OPEN', 'REVEAL', 'HONOR'];
@@ -64,6 +77,7 @@ export class GameEngine {
   readonly now: () => number;
   readonly rng: () => number;
   readonly baseRules: RuleConfig;
+  readonly mcDirector: McDirector;
   players = new Map<string, Player>();
   questions: Question[] = [];
   display: DisplayConfig = { ...DEFAULT_DISPLAY };
@@ -81,6 +95,8 @@ export class GameEngine {
   private listeners = new Set<() => void>();
   mc: McLine | null = null;
   private mcId = 0;
+  private lastNewcomerAt = -Infinity;
+  private revealEncouragedRunId: string | null = null;
   /** đếm số lần chấm để kiểm thử "không chấm hai lần" */
   gradeCount = 0;
 
@@ -89,6 +105,7 @@ export class GameEngine {
     this.now = opts.now ?? Date.now;
     this.rng = opts.rng ?? Math.random;
     this.baseRules = { ...DEFAULT_RULES, ...(opts.rules ?? {}) };
+    this.mcDirector = new McDirector({ now: this.now, rng: this.rng });
     for (const p of this.store.loadPlayers()) this.players.set(p.userId, p);
     this.questions = this.store.loadQuestions();
     const disp = this.store.getMeta('display');
@@ -188,8 +205,309 @@ export class GameEngine {
     }
   }
 
-  private say(text: string) {
-    this.mc = { id: ++this.mcId, text, at: this.now() };
+  private say(text: string, meta?: Partial<Omit<McLine, 'id' | 'text' | 'at'>>) {
+    const now = this.now();
+    const durationMs = meta?.durationMs ?? 3500;
+    this.mcDirector.lastSpeechEndAt = Math.max(now, this.mcDirector.lastSpeechEndAt) + durationMs;
+    this.mc = {
+      id: ++this.mcId,
+      text,
+      at: now,
+      category: meta?.category,
+      templateId: meta?.templateId,
+      durationMs,
+      isAux: meta?.isAux ?? false,
+    };
+  }
+
+  /**
+   * Kiểm tra vị trí thực tế hiện tại của một người chơi ngay trước khi MC phát lời chào.
+   * Nếu người chơi đã đổi vị trí (ví dụ từ ghế chờ lên ghế nóng, hoặc đã rời hàng chờ), trả về vị trí thực tế mới.
+   */
+  resolvePlayerPositionForMc(userId: string): { active: boolean; currentPosNote: string | null } {
+    const p = this.players.get(userId);
+    if (!p || p.locked) return { active: false, currentPosNote: null };
+    const seatIdx = this.seatOf(userId);
+    if (seatIdx >= 0) {
+      return { active: true, currentPosNote: `ghế nóng số ${seatIdx + 1}` };
+    }
+    const inv = this.inviteOf(userId);
+    if (inv) {
+      return { active: true, currentPosNote: `danh sách mời ghế nóng số ${inv.seat}` };
+    }
+    const qi = this.queueIndex(userId);
+    if (qi >= 0) {
+      if (qi < this.rules.waitingSeats) {
+        return { active: true, currentPosNote: `ghế chờ số ${qi + 1}` };
+      }
+      return { active: true, currentPosNote: `hàng chờ thứ ${qi + 1}` };
+    }
+    return { active: true, currentPosNote: null };
+  }
+
+  /**
+   * Thu thập dữ liệu THẬT 100% từ trạng thái hiện tại của máy chủ để điền vào ngân hàng lời thoại MC.
+   */
+  buildMcContext(extra: Partial<McDataContext> = {}): McDataContext {
+    const s = this.state;
+    const cur = s.current;
+    const q = cur ? this.questionById(cur.questionId) : undefined;
+    const seatedTenures = s.seats.filter((t): t is Tenure => Boolean(t));
+    const hotSeatedCount = seatedTenures.length;
+    const emptySeatCount = this.rules.hotSeats - hotSeatedCount;
+    const hotAnsweredCount =
+      s.phase === 'OPEN'
+        ? seatedTenures.filter((t) => this.answers.has(t.userId)).length
+        : s.lastResult
+          ? s.lastResult.seats.filter((r) => r.answered).length
+          : 0;
+    const hotRemainingCount = Math.max(0, hotSeatedCount - hotAnsweredCount);
+    const answeredCount = s.phase === 'OPEN' ? this.answers.size : (s.lastResult?.totalAnswers ?? 0);
+    const waitingCount = Math.min(s.queue.length, this.rules.waitingSeats);
+
+    // Tìm người đang có chuỗi đúng (level) cao nhất trên ghế nóng
+    let topTenure: Tenure | null = null;
+    for (const t of seatedTenures) {
+      if (!topTenure || t.level > topTenure.level) topTenure = t;
+    }
+
+    // Dữ liệu lời mời hiện tại
+    const invNames = s.invites.slice(0, 3).map((inv) => `${speakableName(this.nameOf(inv.userId))} ghế ${inv.seat}`);
+    const invMore = Math.max(0, s.invites.length - invNames.length);
+    const invitedNamesText = invNames.length
+      ? `${joinVi(invNames)}${invMore > 0 ? ` và ${invMore} bạn nữa` : ''}`
+      : '';
+
+    // Dữ liệu kết quả câu vừa chấm & người bị loại
+    const lastRes = s.lastResult;
+    const elimSeats = lastRes ? lastRes.seats.filter((r) => !r.stays) : [];
+    const elimShown = elimSeats.slice(0, 3).map((r) => speakableName(r.nickname));
+    const elimMore = Math.max(0, elimSeats.length - elimShown.length);
+    const eliminatedNamesText = elimShown.length
+      ? `${joinVi(elimShown)}${elimMore > 0 ? ` và ${elimMore} bạn` : ''}`
+      : '';
+    const keepCount = lastRes ? lastRes.seats.filter((r) => r.stays).length : (s.honor?.keepCount ?? 0);
+
+    // Dữ liệu vinh danh
+    const hEntries = s.honor?.entries ?? [];
+    const hShown = hEntries.slice(0, 3).map((e) => speakableName(e.nickname));
+    const hMore = Math.max(0, hEntries.length - hShown.length);
+    const honoredNamesText = hShown.length ? `${joinVi(hShown)}${hMore > 0 ? ` và ${hMore} bạn` : ''}` : '';
+    const honoredLevel = hEntries.length ? Math.max(...hEntries.map((e) => e.level)) : (topTenure?.level ?? 0);
+
+    return {
+      phase: s.phase,
+      round: s.session?.round ?? 1,
+      code: cur?.code ?? s.lastResult?.code ?? s.session?.nextCode ?? 1,
+      topic: q?.topic ?? '',
+      questionText: q?.text ?? '',
+      hotSeatedCount,
+      emptySeatCount,
+      hotAnsweredCount,
+      hotRemainingCount,
+      answeredCount,
+      waitingCount,
+      queueTotal: s.queue.length,
+      topStreakLevel: topTenure?.level ?? 0,
+      topStreakName: topTenure ? speakableName(this.nameOf(topTenure.userId)) : '',
+      topStreakSeat: topTenure?.seat ?? 0,
+      invitedNamesText,
+      invitedCount: s.invites.length,
+      inviteSec: Math.round(this.rules.inviteConfirmMs / 1000),
+      welcomeNamesText: '',
+      welcomeCount: 0,
+      welcomeExtraCount: 0,
+      welcomePositionNote: '',
+      correctChoice: lastRes?.correct ?? '',
+      totalCorrect: lastRes?.totalCorrect ?? 0,
+      keepCount,
+      eliminatedCount: elimSeats.length,
+      eliminatedNamesText,
+      honoredNamesText,
+      honoredCount: hEntries.length,
+      honoredLevel,
+      allFloorWon: Boolean(s.honor?.allFloor || (lastRes && lastRes.seats.length === this.rules.hotSeats && keepCount === this.rules.hotSeats)),
+      giftSendersText: '',
+      giftSenderCount: 0,
+      giftName: '',
+      giftTotalCount: 0,
+      pointsCorrect: this.rules.pointsCorrect,
+      milestonesText: joinVi(this.rules.milestones),
+      ...extra,
+    };
+  }
+
+  /**
+   * Phát 1 câu thoại từ ngân hàng có điều kiện theo nhóm `category`.
+   */
+  emitMcFromCategory(
+    category: McCategory,
+    extraCtx: Partial<McDataContext> = {},
+    opts: { isAux?: boolean; remainPhaseMs?: number | null; now?: number } = {},
+  ): boolean {
+    const ctx = this.buildMcContext(extraCtx);
+    const picked = this.mcDirector.pickAndRender(category, ctx, opts);
+    if (!picked) return false;
+    this.mc = {
+      id: ++this.mcId,
+      text: picked.text,
+      at: picked.at,
+      category: picked.category,
+      templateId: picked.templateId,
+      durationMs: picked.durationMs,
+      isAux: picked.isAux,
+    };
+    return true;
+  }
+
+  /**
+   * Điều phối lời thoại phụ theo nhịp đồng hồ máy chủ:
+   * - Khi còn <= 5 giây ở pha OPEN: ngừng chào hỏi, cảm ơn quà và đùa; ưu tiên nhắc hết giờ (nhacGio).
+   * - Trong 1 câu hỏi (OPEN): tối đa 1–2 câu phụ (3–6s), cách nhau ít nhất 8 giây, giữ khoảng yên tĩnh để suy nghĩ,
+   *   và không bắt đầu lời phụ nếu thời gian còn lại không đủ phát hết.
+   * - Ở pha REVEAL: nếu có người bị loại, sau khi công bố đáp án xong sẽ phát câu động viên (dongVien).
+   * - Nhắc cách chơi khoảng 2–3 phút/lần ở lúc chuyển câu hoặc đón người mới (không đọc luật dài lúc đang OPEN).
+   */
+  private tickMc(now: number): boolean {
+    const s = this.state;
+    this.mcDirector.pruneStaleQueues(now);
+    const remainPhaseMs = s.phaseEndsAt != null ? Math.max(0, s.phaseEndsAt - now) : null;
+
+    // 1. Pha OPEN (Đang nhận đáp án)
+    if (s.phase === 'OPEN' && s.current) {
+      const runId = s.current.runId;
+      // Khi còn <= 5 giây: ngừng mọi chào hỏi / cảm ơn / đùa, ưu tiên nhắc hết giờ
+      if (remainPhaseMs !== null && remainPhaseMs <= 5_000 && remainPhaseMs >= 600) {
+        if (this.mcDirector.warned5sRunId !== runId) {
+          this.mcDirector.warned5sRunId = runId;
+          return this.emitMcFromCategory('nhacGio', {}, { isAux: false, remainPhaseMs, now });
+        }
+        return false;
+      }
+
+      // Khi còn > 5.5 giây: kiểm tra điều kiện phát câu phụ (tối đa 1–2 câu phụ, cách nhau >= 8 giây, giữ vài giây yên tĩnh)
+      const availBefore5s = remainPhaseMs !== null ? remainPhaseMs - 5_000 : Infinity;
+      const elapsedOpenMs = now - s.phaseStartedAt;
+      const quietEnough = now >= this.mcDirector.lastSpeechEndAt + 2_200 && elapsedOpenMs >= 5_500;
+      const gapEnough = now - this.mcDirector.lastAuxAt >= MIN_AUX_GAP_MS;
+
+      if (
+        availBefore5s >= 3_600 &&
+        quietEnough &&
+        gapEnough &&
+        this.mcDirector.auxCountInQuestion < MAX_AUX_PER_QUESTION
+      ) {
+        // Ưu tiên 1: Cảm ơn quà đã gom (nếu có)
+        if (this.mcDirector.pendingGifts.length > 0) {
+          const giftBatch = this.mcDirector.consumeGiftBatch(now);
+          if (giftBatch) {
+            return this.emitMcFromCategory(
+              'camOnQua',
+              {
+                giftSendersText: giftBatch.sendersText,
+                giftSenderCount: giftBatch.senderCount,
+                giftName: giftBatch.giftName,
+                giftTotalCount: giftBatch.totalCount,
+              },
+              { isAux: true, remainPhaseMs: availBefore5s, now },
+            );
+          }
+        }
+
+        // Ưu tiên 2: Chào người mới (gom 2–3 tên, kiểm tra lại vị trí thực tế ngay trước khi phát)
+        if (this.mcDirector.pendingWelcomes.length > 0) {
+          const welcomeBatch = this.mcDirector.consumeWelcomeBatch((uid) => this.resolvePlayerPositionForMc(uid), now);
+          if (welcomeBatch) {
+            return this.emitMcFromCategory(
+              'chaoHoi',
+              {
+                welcomeNamesText: welcomeBatch.namesText,
+                welcomeCount: welcomeBatch.count,
+                welcomeExtraCount: welcomeBatch.extraCount,
+                welcomePositionNote: welcomeBatch.positionNote,
+              },
+              { isAux: true, remainPhaseMs: availBefore5s, now },
+            );
+          }
+        }
+
+        // Ưu tiên 3: Bình luận tình huống thật khi chờ trả lời (số ghế đã chốt / chuỗi đúng / số người trả lời)
+        return this.emitMcFromCategory('choTraLoi', {}, { isAux: true, remainPhaseMs: availBefore5s, now });
+      }
+      return false;
+    }
+
+    // 2. Pha REVEAL (Công bố kết quả): nếu có người bị loại, phát câu động viên ở nửa sau pha REVEAL
+    if (s.phase === 'REVEAL' && s.current) {
+      const runId = s.current.runId;
+      const elapsedReveal = now - s.phaseStartedAt;
+      const hasElim = Boolean(s.lastResult?.seats.some((r) => !r.stays));
+      if (
+        hasElim &&
+        this.revealEncouragedRunId !== runId &&
+        elapsedReveal >= 2_200 &&
+        (remainPhaseMs === null || remainPhaseMs >= 1_800)
+      ) {
+        this.revealEncouragedRunId = runId;
+        return this.emitMcFromCategory('dongVien', {}, { isAux: false, remainPhaseMs, now });
+      }
+      return false;
+    }
+
+    // 3. Các pha chuyển câu / chờ (TRANSITION, INVITING, PREPARE, STANDBY):
+    //    Ưu tiên nhắc cách chơi định kỳ 2–3 phút/lần hoặc chào người mới / cảm ơn quà khi MC đang rảnh
+    if (['TRANSITION', 'INVITING', 'PREPARE', 'STANDBY'].includes(s.phase)) {
+      if (now < this.mcDirector.lastSpeechEndAt + 600) return false;
+      const remainBeforeOpenMs =
+        s.phase === 'STANDBY'
+          ? null
+          : s.phase === 'TRANSITION' || s.phase === 'INVITING'
+            ? (remainPhaseMs ?? 0) + this.rules.prepareMs
+            : remainPhaseMs;
+      if (remainBeforeOpenMs !== null && remainBeforeOpenMs < 3_200) return false;
+
+      // Nhắc hướng dẫn cách chơi khoảng 2–3 phút một lần (ưu tiên lúc chuyển câu hoặc đón người mới)
+      if (now - this.mcDirector.lastGuideReminderAt >= GUIDE_REMINDER_INTERVAL_MS) {
+        this.mcDirector.lastGuideReminderAt = now;
+        if (this.emitMcFromCategory('huongDan', {}, { isAux: true, remainPhaseMs: remainBeforeOpenMs, now })) {
+          return true;
+        }
+      }
+
+      if (this.mcDirector.pendingWelcomes.length > 0) {
+        const welcomeBatch = this.mcDirector.consumeWelcomeBatch((uid) => this.resolvePlayerPositionForMc(uid), now);
+        if (welcomeBatch) {
+          return this.emitMcFromCategory(
+            'chaoHoi',
+            {
+              welcomeNamesText: welcomeBatch.namesText,
+              welcomeCount: welcomeBatch.count,
+              welcomeExtraCount: welcomeBatch.extraCount,
+              welcomePositionNote: welcomeBatch.positionNote,
+            },
+            { isAux: true, remainPhaseMs: remainBeforeOpenMs, now },
+          );
+        }
+      }
+
+      if (this.mcDirector.pendingGifts.length > 0) {
+        const giftBatch = this.mcDirector.consumeGiftBatch(now);
+        if (giftBatch) {
+          return this.emitMcFromCategory(
+            'camOnQua',
+            {
+              giftSendersText: giftBatch.sendersText,
+              giftSenderCount: giftBatch.senderCount,
+              giftName: giftBatch.giftName,
+              giftTotalCount: giftBatch.totalCount,
+            },
+            { isAux: true, remainPhaseMs: remainBeforeOpenMs, now },
+          );
+        }
+      }
+    }
+
+    return false;
   }
 
   private setPhase(p: Phase, durMs: number | null) {
@@ -390,6 +708,17 @@ export class GameEngine {
       if (cmd.kind !== 'huy' && cmd.kind !== 'nhuong') {
         this.refillWaitingQueue();
       }
+      const posInfo = this.resolvePlayerPositionForMc(player.userId);
+      if (
+        this.mcDirector.enqueueNewcomerOnFirstValidAction(
+          player.userId,
+          player.nickname,
+          posInfo.currentPosNote ?? '',
+          ev.receivedAt,
+        )
+      ) {
+        this.lastNewcomerAt = ev.receivedAt;
+      }
       if (this.state.undo && !opts.replay && REPLAY_KINDS.has(cmd.kind)) this.state.undo.replay.push(ev);
       if (this.state.phase === 'STANDBY') {
         this.sys('Có tương tác mới: đánh thức game');
@@ -558,7 +887,10 @@ export class GameEngine {
     }
     const name = shortName(safeDisplayName(ev.nickname), 16);
     const g = ev.gift ?? { name: 'Quà', count: 1, diamonds: 1 };
-    this.giftBuffer.push({ name, gift: g.name, count: Math.max(1, g.count | 0) });
+    const count = Math.max(1, g.count | 0);
+    const uid = (ev.userId || '').trim() || `guest_${name}`;
+    this.mcDirector.enqueueGift(uid, safeDisplayName(ev.nickname), g.name, count, ev.receivedAt);
+    this.giftBuffer.push({ name, gift: g.name, count });
     this.addLog({ kind: 'system', userId: ev.userId, nickname: ev.nickname, message: `Quà "${g.name}" ×${g.count}: chỉ hiệu ứng cảm ơn, không đổi điểm/ghế/hàng chờ` });
     this.flushGifts();
     this.changed();
@@ -609,6 +941,7 @@ export class GameEngine {
         dirty = false;
       }
     }
+    if (this.tickMc(now)) dirty = true;
     if (dirty) this.changed();
   }
 
@@ -680,7 +1013,12 @@ export class GameEngine {
     this.refillWaitingQueue();
     this.rotateAudience();
     this.setPhase('INVITING', this.rules.inviteConfirmMs);
-    this.say(`Mời ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` và ${names.length - 3} bạn nữa` : ''} chuẩn bị lên ghế nóng sau 12 giây.`);
+    if (!this.emitMcFromCategory('moiLenGhe', {}, { isAux: false, now })) {
+      this.say(`Mời ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` và ${names.length - 3} bạn nữa` : ''} chuẩn bị lên ghế nóng sau 12 giây.`, {
+        category: 'moiLenGhe',
+        durationMs: 4200,
+      });
+    }
     this.commit();
   }
 
@@ -710,7 +1048,9 @@ export class GameEngine {
     sess.round += 1;
     sess.roundActiveMs = 0;
     this.setPhase('ROUND_BOARD', this.rules.roundBoardMs);
-    this.say(`Kết thúc hiệp ${sess.round - 1}. Chúc mừng các bạn dẫn đầu!`);
+    if (!this.emitMcFromCategory('huongDan', {}, { isAux: false, now: this.now() })) {
+      this.say(`Kết thúc hiệp ${sess.round - 1}. Chúc mừng các bạn dẫn đầu!`, { category: 'huongDan', durationMs: 3800 });
+    }
     this.commit();
   }
 
@@ -744,7 +1084,7 @@ export class GameEngine {
     if (!anySeated && now - s.lastInteractionAt >= this.rules.idleStandbyMs) {
       this.setPhase('STANDBY', null);
       this.sys(`Không còn ghế nóng và ${this.rules.idleStandbyMs / 1000} giây không có tương tác hợp lệ: màn hình chờ`);
-      this.say('Sân khấu tạm nghỉ. Bình luận VÀO hoặc CHỜ để bắt đầu!');
+      this.say('Sân khấu tạm nghỉ. Bình luận VÀO hoặc CHỜ để bắt đầu!', { category: 'huongDan', durationMs: 3800 });
       return this.commit();
     }
     const used = new Set(s.usedQuestionIds);
@@ -754,7 +1094,7 @@ export class GameEngine {
       s.current = null;
       this.setPhase('NO_QUESTIONS', null);
       this.addLog({ kind: 'error', message: 'Hết câu hỏi đã duyệt trong phiên: chuyển màn hình nghỉ, không lặp câu cũ' });
-      this.say('Đã hết câu hỏi của phiên này. Cảm ơn các bạn, chúng ta nghỉ một chút nhé!');
+      this.say('Đã hết câu hỏi của phiên này. Cảm ơn các bạn, chúng ta nghỉ một chút nhé!', { category: 'huongDan', durationMs: 4000 });
       return this.commit();
     }
     if (pick.note) this.sys(`Chọn câu: ${pick.note}`);
@@ -777,7 +1117,17 @@ export class GameEngine {
     s.undo = null; // câu kế tiếp đã bắt đầu: không hoàn tác câu trước nữa
     this.answers.clear();
     this.setPhase('PREPARE', this.rules.prepareMs);
-    this.say(`Câu ${code}. Chủ đề ${q.topic}.`);
+    if (now - this.mcDirector.lastGuideReminderAt >= GUIDE_REMINDER_INTERVAL_MS) {
+      this.mcDirector.lastGuideReminderAt = now;
+      if (!this.emitMcFromCategory('huongDan', {}, { isAux: false, now })) {
+        this.say(`Câu ${code}. Chủ đề ${q.topic}. Gõ ${code}A, ${code}B, ${code}C hoặc ${code}D khi mở câu nhé!`, {
+          category: 'huongDan',
+          durationMs: 3600,
+        });
+      }
+    } else {
+      this.say(`Câu ${code}. Chủ đề ${q.topic}.`, { category: 'huongDan', durationMs: 2500 });
+    }
     this.commit(() => this.store.insertRun({ runId, sessionId: s.session!.id, code, questionId: q.id, preparedAt: now }));
   }
 
@@ -792,7 +1142,8 @@ export class GameEngine {
     s.phaseStartedAt = now;
     s.phaseEndsAt = cur.closesAt;
     const q = this.questionById(cur.questionId);
-    this.say(q ? q.text : `Câu ${cur.code}`);
+    this.mcDirector.onQuestionStart(cur.runId, now, 3600);
+    this.say(q ? q.text : `Câu ${cur.code}`, { category: 'huongDan', durationMs: 3600, isAux: false });
     this.commit(() => this.store.setRunStatus(cur.runId, 'open', { openedAt: now, closesAt: cur.closesAt! }));
   }
 
@@ -910,7 +1261,9 @@ export class GameEngine {
     s.undo = { runId: cur.runId, code: cur.code, snapshot: undoSnapshot, players: undoPlayers, replay: [] };
     this.setPhase('REVEAL', this.rules.revealMs);
     this.sys(`Chấm câu ${cur.code}: ${this.answers.size} đáp án, ${totalCorrect} đúng; ghế nóng đúng ${seatResults.filter((r) => r.correct).length}/${seatResults.length}`);
-    this.say(`Đáp án đúng là ${q.correct}.`);
+    if (!this.emitMcFromCategory('congBoKetQua', {}, { isAux: false, now })) {
+      this.say(`Đáp án đúng là ${q.correct}.`, { category: 'congBoKetQua', durationMs: 3200 });
+    }
     this.commit(() => {
       this.store.setRunStatus(cur.runId, 'graded', { gradedAt: now });
       this.store.insertResults(rows);
@@ -929,11 +1282,27 @@ export class GameEngine {
   private sayHonor() {
     const h = this.state.honor;
     if (!h) return;
-    if (h.kind === 'milestone') {
-      const names = h.entries.slice(0, 3).map((e) => speakableName(e.nickname));
-      this.say(`${h.allFloor ? 'Cả sàn giữ ghế! ' : ''}Chúc mừng ${names.join(', ')}${h.entries.length > 3 ? ` và ${h.entries.length - 3} bạn` : ''}!`);
-    } else if (h.kind === 'keep') this.say(h.allFloor ? 'Cả sàn giữ ghế!' : `${h.keepCount} người giữ ghế!`);
-    else if (h.kind === 'fresh') this.say('Sân đấu đón lượt mới!');
+    const now = this.now();
+    if (h.kind === 'milestone' || h.kind === 'keep') {
+      if (!this.emitMcFromCategory('vinhDanh', {}, { isAux: false, now })) {
+        if (h.kind === 'milestone') {
+          const names = h.entries.slice(0, 3).map((e) => speakableName(e.nickname));
+          this.say(`${h.allFloor ? 'Cả sàn giữ ghế! ' : ''}Chúc mừng ${names.join(', ')}${h.entries.length > 3 ? ` và ${h.entries.length - 3} bạn` : ''}!`, {
+            category: 'vinhDanh',
+            durationMs: 4200,
+          });
+        } else {
+          this.say(h.allFloor ? 'Cả sàn giữ ghế!' : `${h.keepCount} người giữ ghế!`, {
+            category: 'vinhDanh',
+            durationMs: 3600,
+          });
+        }
+      }
+    } else if (h.kind === 'fresh') {
+      if (!this.emitMcFromCategory('dongVien', {}, { isAux: false, now })) {
+        this.say('Sân đấu đón lượt mới!', { category: 'dongVien', durationMs: 3500 });
+      }
+    }
   }
 
   // ======================================================================
@@ -962,6 +1331,7 @@ export class GameEngine {
     this.state.nextTicket = preNextTicket;
     this.state.session = { id, startedAt: now, round: 1, roundActiveMs: 0, nextCode: 1, endRequested: false };
     this.answers.clear();
+    this.mcDirector.resetForNewSession(now);
     // Tự động lấp đầy 10 ghế chờ từ danh sách người chơi hợp lệ mà không cần gõ "chờ"
     this.refillWaitingQueue();
     this.store.tx(() => this.store.insertSession(id, now));
@@ -1353,6 +1723,18 @@ export class GameEngine {
       finalBoard: s.phase === 'ENDED' ? this.ranking('sessionPoints', 10) : null,
       notices: this.notices.filter((n) => n.until > now).map((n) => ({ id: n.id, text: n.text, kind: n.kind })),
       mc: this.mc && now - this.mc.at < 8_000 ? this.mc : null,
+      stageGuide: buildStageGuide({
+        phase: s.phase,
+        code: cur?.code ?? null,
+        nextCode: s.session?.nextCode ?? 1,
+        invites: s.invites.map((i) => ({
+          name: shortName(this.nameOf(i.userId)),
+          seat: i.seat,
+          expiresAt: i.expiresAt,
+        })),
+        rules: this.rules,
+        hasRecentNewcomer: now - this.lastNewcomerAt < 8_000,
+      }),
       display: this.display,
       shortRules: SHORT_RULES,
       timings: { openMs: this.rules.openMs, inviteConfirmMs: this.rules.inviteConfirmMs },
