@@ -161,13 +161,25 @@ export function Character25D({
       height={size * 1.12}
       viewBox="0 0 80 90"
       className={animClass}
-      style={{ overflow: 'visible', filter: 'drop-shadow(0 4px 5px rgba(0,0,0,0.55))' }}
+      style={{ overflow: 'visible', filter: 'drop-shadow(0 5px 8px rgba(0,0,0,0.65))' }}
     >
-      {showShadow && <ellipse cx="40" cy="82" rx="21" ry="5.5" fill="rgba(0,0,0,0.45)" />}
+      <defs>
+        <linearGradient id={`charShirt_${template}_${pose}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={shirtColor} />
+          <stop offset="100%" stopColor={shirtDark} />
+        </linearGradient>
+        <radialGradient id={`charHead_${template}`} cx="38%" cy="32%" r="65%">
+          <stop offset="0%" stopColor="#ffedd5" />
+          <stop offset="70%" stopColor="#fed7aa" />
+          <stop offset="100%" stopColor="#fdba74" />
+        </radialGradient>
+      </defs>
+
+      {showShadow && <ellipse cx="40" cy="83" rx="22" ry="6" fill="rgba(0,0,0,0.55)" />}
 
       {/* Thân áo 2.5D có khối sáng tối */}
-      <path d="M19 78 C19 54, 61 54, 61 78 Z" fill={shirtColor} stroke="#090d16" strokeWidth="2.4" />
-      <path d="M40 58 C51 58, 59 64, 60 77 L40 77 Z" fill={shirtDark} opacity="0.45" />
+      <path d="M19 78 C19 54, 61 54, 61 78 Z" fill={`url(#charShirt_${template}_${pose})`} stroke="#090d16" strokeWidth="2.4" />
+      <path d="M40 58 C51 58, 59 64, 60 77 L40 77 Z" fill={shirtDark} opacity="0.4" />
 
       {/* Cổ áo / Cà vạt vàng ấm của MC */}
       {isMc ? (
@@ -207,10 +219,10 @@ export function Character25D({
       )}
 
       {/* Đầu & khuôn mặt hoạt hình 2.5D */}
-      <circle cx="40" cy="35" r="19" fill="#fed7aa" stroke="#090d16" strokeWidth="2.4" />
+      <circle cx="40" cy="35" r="19" fill={`url(#charHead_${template})`} stroke="#090d16" strokeWidth="2.4" />
       {/* Má hồng nhẹ */}
-      <ellipse cx="27" cy="39" rx="3.2" ry="1.8" fill="#fb7185" opacity="0.45" />
-      <ellipse cx="53" cy="39" rx="3.2" ry="1.8" fill="#fb7185" opacity="0.45" />
+      <ellipse cx="27" cy="39" rx="3.5" ry="2" fill="#fb7185" opacity="0.5" />
+      <ellipse cx="53" cy="39" rx="3.5" ry="2" fill="#fb7185" opacity="0.5" />
 
       {/* Kiểu tóc theo mẫu */}
       {isMc ? (
@@ -255,7 +267,8 @@ export function Character25D({
 
 /**
  * Tổ hợp GHẾ NÓNG 2.5D ĐỎ CAM + NHÂN VẬT ĐỒNG BỘ.
- * Bao gồm: Đế bục tròn phát sáng, lưng ghế gameshow đỏ cam, nhân vật ngồi trong ghế, tay vịn và đệm ghế trước.
+ * Bao gồm: Đế bục tròn phát sáng đa tầng, lưng ghế gameshow đỏ cam đệm múi thể thao,
+ * viền LED neon, nhân vật ngồi trong ghế, tay vịn kim loại và đệm ghế trước.
  */
 export function HotSeatUnit25D({
   seatNumber,
@@ -286,9 +299,10 @@ export function HotSeatUnit25D({
             ? '#64748b'
             : '#f97316';
 
-  const backFillTop = isCorrect ? '#ea580c' : isWrong ? '#7f1d1d' : isEmpty ? '#1e293b' : '#ea580c';
-  const backFillBottom = isCorrect ? '#9a3412' : isWrong ? '#450a0a' : isEmpty ? '#0f172a' : '#7c2d12';
-  const cushionFill = isEmpty ? '#334155' : isWrong ? '#991b1b' : '#f97316';
+  const backFillTop = isCorrect ? '#f97316' : isWrong ? '#991b1b' : isEmpty ? '#1e293b' : '#ea580c';
+  const backFillBottom = isCorrect ? '#c2410c' : isWrong ? '#450a0a' : isEmpty ? '#0f172a' : '#7c2d12';
+  const cushionFill = isEmpty ? '#334155' : isWrong ? '#7f1d1d' : isCorrect ? '#fb923c' : '#f97316';
+  const neonGlow = isCorrect ? '#fef08a' : isLocked ? '#67e8f9' : isInviting ? '#fde047' : '#fdba74';
 
   return (
     <div style={{ position: 'relative', width: 112, height: 108, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -302,40 +316,63 @@ export function HotSeatUnit25D({
         <defs>
           <linearGradient id={`hsBack_${seatNumber}`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={backFillTop} />
+            <stop offset="50%" stopColor={cushionFill} />
             <stop offset="100%" stopColor={backFillBottom} />
           </linearGradient>
+          <radialGradient id={`hsPlatformGlow_${seatNumber}`} cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor={rimColor} stopOpacity={isCorrect ? '0.6' : '0.35'} />
+            <stop offset="100%" stopColor={rimColor} stopOpacity="0" />
+          </radialGradient>
         </defs>
 
-        {/* Bóng đổ mặt sàn dưới bục ghế */}
-        <ellipse cx="56" cy="99" rx="48" ry="10" fill="rgba(0,0,0,0.65)" />
+        {/* Vầng hào quang dưới đế bục ghế */}
+        <ellipse cx="56" cy="95" rx="52" ry="12" fill={`url(#hsPlatformGlow_${seatNumber})`} />
 
-        {/* Bục tròn ghế nóng 2.5D */}
+        {/* Bóng đổ mặt sàn dưới bục ghế */}
+        <ellipse cx="56" cy="99" rx="46" ry="9" fill="rgba(0,0,0,0.7)" />
+
+        {/* Bục tròn ghế nóng 2.5D: Vành kim loại đa tầng */}
+        <ellipse cx="56" cy="96" rx="44" ry="9.5" fill="#0b1329" stroke="#1e293b" strokeWidth="2.5" />
         <ellipse
           cx="56"
-          cy="94"
-          rx="44"
-          ry="9"
-          fill="#090d1b"
+          cy="93"
+          rx="41"
+          ry="8.5"
+          fill="#070c1d"
           stroke={rimColor}
-          strokeWidth={isCorrect || isLocked ? 3 : 2}
+          strokeWidth={isCorrect || isLocked ? 2.8 : 1.8}
         />
-        <ellipse cx="56" cy="91" rx="37" ry="6.5" fill={isCorrect ? 'rgba(251,191,36,0.35)' : 'rgba(249,115,22,0.22)'} />
+        <ellipse cx="56" cy="90.5" rx="34" ry="6" fill={isCorrect ? 'rgba(251,191,36,0.35)' : 'rgba(249,115,22,0.2)'} />
 
-        {/* Thân lưng ghế nóng hình vòm gameshow */}
+        {/* Trụ nâng thủy lực gameshow mạ chrome */}
+        <rect x="52" y="80" width="8" height="12" rx="2" fill="#94a3b8" stroke="#334155" strokeWidth="1" />
+        <line x1="56" y1="80" x2="56" y2="92" stroke="#ffffff" strokeWidth="1.5" opacity="0.6" />
+
+        {/* Thân lưng ghế nóng hình vòm gameshow cánh ôm thể thao */}
         <path
-          d="M 25 84 L 20 26 Q 20 12 34 12 L 78 12 Q 92 12 92 26 L 87 84 Z"
+          d="M 24 84 L 19 25 Q 19 11 34 11 L 78 11 Q 93 11 93 25 L 88 84 Z"
           fill={`url(#hsBack_${seatNumber})`}
           stroke={rimColor}
-          strokeWidth="2.6"
+          strokeWidth="2.5"
         />
-        {/* Đường viền đèn neon bên trong lưng ghế */}
+
+        {/* Các múi đệm da thể thao tạo chiều sâu 2.5D */}
+        <path d="M 28 32 Q 56 30 84 32" fill="none" stroke="#090d16" strokeWidth="1.6" opacity="0.45" />
+        <path d="M 27 50 Q 56 48 85 50" fill="none" stroke="#090d16" strokeWidth="1.6" opacity="0.45" />
+        <path d="M 26 68 Q 56 66 86 68" fill="none" stroke="#090d16" strokeWidth="1.6" opacity="0.45" />
+
+        {/* Đường viền đèn neon Gameshow chạy dọc sống lưng ghế */}
         <path
-          d="M 30 78 L 26 28 Q 26 18 36 18 L 76 18 Q 86 18 86 28 L 82 78"
+          d="M 29 78 L 25 27 Q 25 17 35 17 L 77 17 Q 87 17 87 27 L 83 78"
           fill="none"
-          stroke={isCorrect ? '#fde68a' : isLocked ? '#67e8f9' : '#fdba74'}
-          strokeWidth="1.4"
-          strokeOpacity="0.65"
+          stroke={neonGlow}
+          strokeWidth="1.6"
+          strokeOpacity="0.85"
         />
+
+        {/* Tựa đầu Gameshow VIP */}
+        <rect x="36" y="14" width="40" height="13" rx="4" fill="#090d1b" stroke={neonGlow} strokeWidth="1.2" opacity="0.8" />
+        <line x1="42" y1="20" x2="70" y2="20" stroke="#fbbf24" strokeWidth="1.2" opacity="0.6" />
       </svg>
 
       {/* Nhân vật ngồi chính giữa lòng ghế nóng */}
@@ -359,22 +396,35 @@ export function HotSeatUnit25D({
         viewBox="0 0 112 108"
         style={{ position: 'absolute', inset: 0, zIndex: 3, overflow: 'visible', pointerEvents: 'none' }}
       >
-        {/* Tay vịn trái & phải đỏ cam */}
-        <rect x="14" y="56" width="13" height="24" rx="6" fill={cushionFill} stroke="#090d16" strokeWidth="2" />
-        <rect x="85" y="56" width="13" height="24" rx="6" fill={cushionFill} stroke="#090d16" strokeWidth="2" />
-        <ellipse cx="20.5" cy="58" rx="4.5" ry="2.2" fill="#fed7aa" opacity="0.65" />
-        <ellipse cx="91.5" cy="58" rx="4.5" ry="2.2" fill="#fed7aa" opacity="0.65" />
+        <defs>
+          <linearGradient id={`hsArm_${seatNumber}`} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#475569" />
+            <stop offset="50%" stopColor="#94a3b8" />
+            <stop offset="100%" stopColor="#334155" />
+          </linearGradient>
+        </defs>
 
-        {/* Đệm ngồi mặt trước + Huy hiệu số ghế tròn ở chính giữa */}
+        {/* Tay vịn trái & phải kim loại mạ chrome với đệm bọc da */}
+        <rect x="13" y="55" width="14" height="25" rx="6" fill={cushionFill} stroke="#090d16" strokeWidth="2" />
+        <rect x="85" y="55" width="14" height="25" rx="6" fill={cushionFill} stroke="#090d16" strokeWidth="2" />
+        {/* Nẹp chrome sáng bóng trên tay vịn */}
+        <ellipse cx="20" cy="57" rx="5" ry="2.5" fill="url(#hsArm_1)" stroke="#cbd5e1" strokeWidth="0.8" />
+        <ellipse cx="92" cy="57" rx="5" ry="2.5" fill="url(#hsArm_1)" stroke="#cbd5e1" strokeWidth="0.8" />
+
+        {/* Đệm ngồi mặt trước bo góc 2.5D */}
         <rect x="22" y="73" width="68" height="14" rx="6" fill={cushionFill} stroke={rimColor} strokeWidth="2" />
-        <circle cx="56" cy="80" r="10.5" fill="#090d1b" stroke={rimColor} strokeWidth="2.2" />
-        <text x="56" y="84" textAnchor="middle" fill="#fbbf24" fontSize="12" fontWeight="900">
+        <line x1="28" y1="75" x2="84" y2="75" stroke="#ffffff" strokeWidth="1.2" opacity="0.35" />
+
+        {/* Huy hiệu số ghế tròn Gameshow nổi bật ở chính giữa đệm ghế */}
+        <circle cx="56" cy="80" r="11" fill="#070c1d" stroke={rimColor} strokeWidth="2.4" />
+        <circle cx="56" cy="80" r="8.5" fill="rgba(15, 23, 42, 0.95)" stroke="#38bdf8" strokeWidth="0.8" opacity="0.7" />
+        <text x="56" y="84" textAnchor="middle" fill="#fbbf24" fontSize="12.5" fontWeight="900" style={{ letterSpacing: -0.5 }}>
           {seatNumber}
         </text>
 
         {/* Nếu ghế trống: hiện chữ TRỐNG rõ trên lưng ghế */}
         {isEmpty && (
-          <text x="56" y="50" textAnchor="middle" fill="#94a3b8" fontSize="11.5" fontWeight="800" letterSpacing="0.5">
+          <text x="56" y="49" textAnchor="middle" fill="#94a3b8" fontSize="11" fontWeight="900" letterSpacing="1">
             TRỐNG
           </text>
         )}
@@ -385,6 +435,7 @@ export function HotSeatUnit25D({
 
 /**
  * Tổ hợp GHẾ CHỜ 2.5D + NHÂN VẬT ĐỒNG BỘ (dùng cho 10 ghế chờ, 2 hàng × 5 ghế).
+ * Thiết kế khoang chờ VIP Gameshow hiện đại với viền LED cyan & bọc ghế da.
  */
 export function WaitingSeatUnit25D({
   pos,
@@ -402,64 +453,82 @@ export function WaitingSeatUnit25D({
       data-testid={`waiting-seat-${pos}`}
       style={{
         background: occupied
-          ? 'linear-gradient(180deg, rgba(14, 116, 144, 0.36) 0%, rgba(9, 13, 28, 0.95) 100%)'
-          : 'rgba(9, 13, 28, 0.78)',
+          ? 'linear-gradient(135deg, rgba(14, 116, 144, 0.45) 0%, rgba(8, 20, 52, 0.98) 100%)'
+          : 'linear-gradient(135deg, rgba(15, 23, 42, 0.88) 0%, rgba(6, 12, 30, 0.94) 100%)',
         border: `1.8px solid ${occupied ? '#22d3ee' : '#334155'}`,
         borderRadius: 12,
-        padding: '4px 6px',
+        padding: '3px 6px',
         display: 'flex',
         alignItems: 'center',
-        gap: 6,
+        gap: 5,
         height: 52,
-        boxShadow: occupied ? '0 4px 12px rgba(6, 182, 212, 0.2)' : 'none',
+        boxShadow: occupied ? '0 4px 14px rgba(6, 182, 212, 0.25)' : '0 2px 6px rgba(0,0,0,0.4)',
+        position: 'relative',
+        overflow: 'hidden',
       }}
     >
+      {/* Vạch sáng neon Gameshow ở cạnh trái khi có người */}
+      {occupied && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 3,
+            background: 'linear-gradient(180deg, #38bdf8, #22d3ee)',
+            boxShadow: '0 0 8px #22d3ee',
+          }}
+        />
+      )}
+
       {/* Hình chiếc ghế chờ 2.5D + Nhân vật ngồi trên ghế */}
-      <div style={{ position: 'relative', width: 36, height: 42, flexShrink: 0 }}>
-        <svg width={36} height={42} viewBox="0 0 36 42" style={{ position: 'absolute', inset: 0 }}>
+      <div style={{ position: 'relative', width: 30, height: 38, flexShrink: 0 }}>
+        <svg width={30} height={38} viewBox="0 0 30 38" style={{ position: 'absolute', inset: 0 }}>
           {/* Lưng ghế chờ */}
           <rect
-            x="5"
-            y="4"
-            width="26"
-            height="28"
-            rx="6"
+            x="4"
+            y="3"
+            width="22"
+            height="25"
+            rx="5"
             fill={occupied ? '#0e7490' : '#1e293b'}
             stroke={occupied ? '#22d3ee' : '#475569'}
-            strokeWidth="1.6"
+            strokeWidth="1.5"
           />
           {/* Đệm ghế chờ */}
           <rect
-            x="3"
-            y="29"
-            width="30"
-            height="8"
-            rx="3.5"
+            x="2"
+            y="26"
+            width="26"
+            height="7"
+            rx="3"
             fill={occupied ? '#06b6d4' : '#334155'}
             stroke="#090d16"
-            strokeWidth="1.4"
+            strokeWidth="1.2"
           />
         </svg>
         {occupied && (
-          <div style={{ position: 'absolute', left: 2, top: 1, zIndex: 2 }}>
-            <Character25D template={template} pose="idle" size={32} showShadow={false} />
+          <div style={{ position: 'absolute', left: 1, top: 0, zIndex: 2 }}>
+            <Character25D template={template} pose="idle" size={28} showShadow={false} />
           </div>
         )}
       </div>
 
-      {/* Số thứ tự #1..#10 và tên người chờ (không bị xuống dòng hay cắt chữ) */}
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+      {/* Số thứ tự #1..#10 và tên người chờ */}
+      <div style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
           <span
             style={{
-              background: occupied ? '#fbbf24' : '#334155',
+              background: occupied ? 'linear-gradient(90deg, #f59e0b, #fbbf24)' : '#334155',
               color: occupied ? '#090d1b' : '#cbd5e1',
-              fontSize: 10,
+              fontSize: 9.2,
               fontWeight: 900,
               padding: '1px 5px',
               borderRadius: 4,
               lineHeight: 1.15,
               whiteSpace: 'nowrap',
+              boxShadow: occupied ? '0 1px 4px rgba(245, 158, 11, 0.4)' : 'none',
             }}
           >
             GHẾ #{pos}
@@ -496,7 +565,7 @@ export function AudienceSeatUnit25D({
   return (
     <div style={{ position: 'relative', width: 32, height: 36 }}>
       <svg width={32} height={36} viewBox="0 0 32 36" style={{ position: 'absolute', inset: 0 }}>
-        <ellipse cx="16" cy="33" rx="12" ry="3" fill="rgba(0,0,0,0.45)" />
+        <ellipse cx="16" cy="33" rx="12" ry="3" fill="rgba(0,0,0,0.55)" />
         <rect
           x="5"
           y="6"

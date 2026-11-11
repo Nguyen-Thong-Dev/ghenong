@@ -110,6 +110,52 @@ body {
   transition-duration: 0.001ms !important;
 }
 
+/* Các lớp trang trí Gameshow TV hiện đại */
+@keyframes liveDotPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.35); opacity: 0.45; }
+}
+
+@keyframes timerAlertPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 16px rgba(239, 68, 68, 0.6); }
+  50% { transform: scale(1.04); box-shadow: 0 0 26px rgba(239, 68, 68, 0.95); }
+}
+
+@keyframes ringRotate {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes shimmerSweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+.anim-live-dot {
+  animation: liveDotPulse 1.2s ease-in-out infinite;
+}
+
+.anim-timer-alert {
+  animation: timerAlertPulse 0.65s ease-in-out infinite;
+}
+
+.gameshow-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.gameshow-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+  transform: skewX(-20deg);
+  animation: shimmerSweep 3.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .anim-bob,
   .anim-mc-breathe,
@@ -117,7 +163,10 @@ body {
   .anim-down,
   .anim-honor,
   .anim-score-pop,
-  .anim-spotlight {
+  .anim-spotlight,
+  .anim-live-dot,
+  .anim-timer-alert,
+  .gameshow-shimmer::after {
     animation: none !important;
   }
 }

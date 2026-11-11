@@ -605,7 +605,7 @@ export function StageCanvas({
         width: STAGE_W,
         height: STAGE_H,
         position: 'relative',
-        background: 'radial-gradient(ellipse at 50% 14%, #132a5e 0%, #08122c 52%, #040816 100%)',
+        background: 'radial-gradient(ellipse at 50% 12%, #18336d 0%, #0a1738 48%, #030714 100%)',
         color: '#f8fafc',
         overflow: 'hidden',
       }}
@@ -622,34 +622,55 @@ export function StageCanvas({
         <defs>
           {/* Chùm đèn vàng ấm mặc định */}
           <linearGradient id="spotWarm" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#fbbf24" stopOpacity="0.32" />
-            <stop offset="65%" stopColor="#f59e0b" stopOpacity="0.1" />
+            <stop offset="0%" stopColor="#fbbf24" stopOpacity="0.38" />
+            <stop offset="60%" stopColor="#f59e0b" stopOpacity="0.12" />
             <stop offset="100%" stopColor="#f59e0b" stopOpacity="0" />
           </linearGradient>
           {/* Chùm đèn xanh ngọc khi đang ngồi ghế nóng */}
           <linearGradient id="spotCyan" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.34" />
-            <stop offset="70%" stopColor="#06b6d4" stopOpacity="0.1" />
+            <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.42" />
+            <stop offset="65%" stopColor="#06b6d4" stopOpacity="0.14" />
             <stop offset="100%" stopColor="#06b6d4" stopOpacity="0" />
           </linearGradient>
           {/* Chùm đèn Spotlight RỰC RỠ chiếu thẳng vào ghế nóng trả lời ĐÚNG */}
           <linearGradient id="spotVictory" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#fef08a" stopOpacity="0.78" />
-            <stop offset="45%" stopColor="#fbbf24" stopOpacity="0.42" />
-            <stop offset="85%" stopColor="#22d3ee" stopOpacity="0.22" />
+            <stop offset="0%" stopColor="#fef08a" stopOpacity="0.85" />
+            <stop offset="35%" stopColor="#fbbf24" stopOpacity="0.5" />
+            <stop offset="75%" stopColor="#22d3ee" stopOpacity="0.25" />
             <stop offset="100%" stopColor="#22d3ee" stopOpacity="0" />
           </linearGradient>
-          {/* Mặt sàn trường quay 2.5D */}
-          <radialGradient id="gameshowFloor" cx="50%" cy="48%" r="52%">
-            <stop offset="0%" stopColor="#17377a" stopOpacity="0.85" />
-            <stop offset="62%" stopColor="#0b193d" stopOpacity="0.95" />
-            <stop offset="100%" stopColor="#04091a" stopOpacity="1" />
+          {/* Mặt sàn trường quay 2.5D phản chiếu ánh đèn studio */}
+          <radialGradient id="gameshowFloor" cx="50%" cy="46%" r="54%">
+            <stop offset="0%" stopColor="#1e40af" stopOpacity="0.9" />
+            <stop offset="45%" stopColor="#112558" stopOpacity="0.95" />
+            <stop offset="85%" stopColor="#071129" stopOpacity="0.98" />
+            <stop offset="100%" stopColor="#030715" stopOpacity="1" />
           </radialGradient>
+          {/* Bục ghế chờ VIP */}
+          <linearGradient id="waitingPodiumGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#0e2a5c" stopOpacity="0.96" />
+            <stop offset="100%" stopColor="#071228" stopOpacity="0.98" />
+          </linearGradient>
         </defs>
 
-        {/* Vòm ánh sáng trường quay phía trên */}
-        <ellipse cx="360" cy="40" rx="350" ry="70" fill="rgba(6, 182, 212, 0.12)" />
-        <path d="M 0 14 L 720 14" stroke="#1e3a8a" strokeWidth="4" opacity="0.7" />
+        {/* Giàn khung thép sân khấu Gameshow (Studio Lighting Truss) */}
+        <path d="M 0 10 L 720 10 M 0 22 L 720 22" stroke="#1e293b" strokeWidth="3" opacity="0.85" />
+        {Array.from({ length: 24 }).map((_, i) => (
+          <line
+            key={`truss_${i}`}
+            x1={i * 30}
+            y1={10}
+            x2={i * 30 + 15}
+            y2={22}
+            stroke="#334155"
+            strokeWidth="1.5"
+            opacity="0.6"
+          />
+        ))}
+
+        {/* Vòm ánh sáng trường quay phía trên (Studio Dome Glow) */}
+        <ellipse cx="360" cy="38" rx="350" ry="60" fill="rgba(34, 211, 238, 0.14)" />
+        <ellipse cx="360" cy="18" rx="280" ry="24" fill="rgba(251, 191, 36, 0.08)" />
 
         {/* 5 Đèn trần & Chùm sáng Spotlight chiếu vào đúng 5 vị trí ghế nóng */}
         {HOT_SEAT_CENTERS_X.map((cx, idx) => {
@@ -663,70 +684,82 @@ export function StageCanvas({
             <g key={idx} data-testid={isSeatCorrect ? `spotlight-correct-${idx + 1}` : `spotlight-${idx + 1}`}>
               <polygon
                 className={isSeatCorrect ? 'anim-spotlight' : undefined}
-                points={`${cx - 14},12 ${cx + 14},12 ${cx + 66},650 ${cx - 66},650`}
+                points={`${cx - 16},22 ${cx + 16},22 ${cx + 70},645 ${cx - 70},645`}
                 fill={beamFill}
               />
-              {/* Đèn pha trên giàn trần */}
-              <rect x={cx - 14} y={4} width={28} height={10} rx={4} fill="#1e293b" stroke="#fbbf24" strokeWidth="1.5" />
+              {/* Đèn pha trên giàn trần với thấu kính phát sáng */}
+              <rect x={cx - 16} y={12} width={32} height={12} rx={4} fill="#0f172a" stroke="#475569" strokeWidth="1.5" />
               <ellipse
                 cx={cx}
-                cy={14}
-                rx={11}
-                ry={3.5}
+                cy={22}
+                rx={13}
+                ry={4}
                 fill={isSeatCorrect ? '#fef08a' : hasOccupant ? '#22d3ee' : '#fbbf24'}
+                filter="drop-shadow(0 0 6px rgba(251, 191, 36, 0.8))"
               />
               {/* Hào quang rực sáng dưới sàn khi ghế nóng trả lời ĐÚNG */}
               {isSeatCorrect && (
-                <ellipse
-                  cx={cx}
-                  cy={608}
-                  rx={58}
-                  ry={18}
-                  fill="rgba(251, 191, 36, 0.42)"
-                  stroke="#fde047"
-                  strokeWidth="2"
-                />
+                <g>
+                  <ellipse
+                    cx={cx}
+                    cy={612}
+                    rx={64}
+                    ry={20}
+                    fill="rgba(251, 191, 36, 0.45)"
+                    stroke="#fde047"
+                    strokeWidth="2.5"
+                  />
+                  <ellipse
+                    cx={cx}
+                    cy={612}
+                    rx={42}
+                    ry={12}
+                    fill="rgba(254, 240, 138, 0.35)"
+                  />
+                </g>
               )}
             </g>
           );
         })}
 
         {/* Sàn sân khấu chính hình elip đồng tâm 2.5D */}
-        <ellipse cx="360" cy="612" rx="348" ry="88" fill="url(#gameshowFloor)" stroke="#06b6d4" strokeWidth="2.5" strokeOpacity="0.65" />
-        <ellipse cx="360" cy="612" rx="304" ry="66" fill="none" stroke="#fbbf24" strokeWidth="1.8" strokeDasharray="10 6" strokeOpacity="0.55" />
+        <ellipse cx="360" cy="614" rx="352" ry="90" fill="url(#gameshowFloor)" stroke="#06b6d4" strokeWidth="2.8" strokeOpacity="0.75" />
+        <ellipse cx="360" cy="614" rx="312" ry="68" fill="none" stroke="#fbbf24" strokeWidth="2" strokeDasharray="12 6" strokeOpacity="0.65" />
+        <ellipse cx="360" cy="614" rx="260" ry="48" fill="none" stroke="rgba(34, 211, 238, 0.35)" strokeWidth="1.5" />
 
         {/* Khán đài hình chữ U 2.5D bao quanh sân khấu (2 cánh + đáy vòng cung) */}
         <path
-          d="M 8 742 L 88 742 L 88 978 Q 360 1042 632 978 L 632 742 L 712 742 L 712 1142 Q 360 1218 8 1142 Z"
-          fill="rgba(7, 14, 34, 0.92)"
+          d="M 8 740 L 88 740 L 88 976 Q 360 1040 632 976 L 632 740 L 712 740 L 712 1142 Q 360 1218 8 1142 Z"
+          fill="rgba(6, 12, 30, 0.94)"
           stroke="#06b6d4"
           strokeWidth="2"
-          strokeOpacity="0.45"
+          strokeOpacity="0.5"
         />
         {/* Đường bậc thềm khán đài chữ U */}
         <path
           d="M 16 995 Q 360 1068 704 995"
           fill="none"
-          stroke="rgba(251, 191, 36, 0.28)"
-          strokeWidth="1.5"
+          stroke="rgba(251, 191, 36, 0.32)"
+          strokeWidth="1.6"
           strokeDasharray="6 6"
         />
         <path
           d="M 16 1052 Q 360 1126 704 1052"
           fill="none"
-          stroke="rgba(34, 211, 238, 0.25)"
-          strokeWidth="1.5"
+          stroke="rgba(34, 211, 238, 0.28)"
+          strokeWidth="1.6"
           strokeDasharray="6 6"
         />
 
         {/* Bậc thềm trung tâm dành cho 10 Ghế Chờ (2 hàng × 5 ghế) */}
         <path
-          d="M 94 744 L 626 744 L 636 938 L 84 938 Z"
-          fill="rgba(10, 20, 48, 0.94)"
+          d="M 52 742 L 668 742 L 678 940 L 42 940 Z"
+          fill="url(#waitingPodiumGrad)"
           stroke="#22d3ee"
           strokeWidth="2"
-          strokeOpacity="0.5"
+          strokeOpacity="0.6"
         />
+        <line x1="54" y1="744" x2="666" y2="744" stroke="#38bdf8" strokeWidth="2" strokeOpacity="0.8" />
       </svg>
 
       {/* ====================================================================
@@ -735,7 +768,7 @@ export function StageCanvas({
       <div
         style={{
           position: 'absolute',
-          top: Math.max(18, safe.safeTop),
+          top: Math.max(16, safe.safeTop),
           left: safe.safeLeft,
           right: safe.safeRight,
           display: 'flex',
@@ -749,30 +782,53 @@ export function StageCanvas({
         {/* Cụm thương hiệu nhỏ gọn + Vòng chơi + Trạng thái */}
         <div
           style={{
-            background: 'linear-gradient(135deg, rgba(8, 16, 40, 0.96), rgba(15, 30, 68, 0.94))',
+            background: 'linear-gradient(135deg, rgba(8, 16, 42, 0.96) 0%, rgba(15, 30, 72, 0.94) 100%)',
             border: '2px solid #f97316',
             borderRadius: 14,
-            padding: '7px 12px',
-            boxShadow: '0 8px 20px rgba(0,0,0,0.55)',
+            padding: '7px 14px',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.1)',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'center',
-            minWidth: 215,
+            minWidth: 220,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 21, fontWeight: 900, letterSpacing: 0.6, color: '#fbbf24' }}>🔥 GHẾ NÓNG</span>
+            <span
+              style={{
+                fontSize: 21,
+                fontWeight: 900,
+                letterSpacing: 0.6,
+                color: '#fbbf24',
+                textShadow: '0 2px 8px rgba(251, 191, 36, 0.5)',
+              }}
+            >
+              🔥 GHẾ NÓNG
+            </span>
             <span
               style={{
                 fontSize: 11.5,
-                fontWeight: 800,
-                background: '#0e7490',
+                fontWeight: 900,
+                background: 'linear-gradient(90deg, #0284c7, #0e7490)',
                 color: '#ecfeff',
                 padding: '2px 8px',
                 borderRadius: 99,
-                border: '1px solid #22d3ee',
+                border: '1px solid #38bdf8',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
               }}
             >
+              <span
+                className="anim-live-dot"
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: '#ef4444',
+                  display: 'inline-block',
+                }}
+              />
               {data.session ? `VÒNG ${data.session.round}` : `LUẬT v${data.rulesVersion}`}
             </span>
           </div>
@@ -783,9 +839,13 @@ export function StageCanvas({
               fontWeight: 800,
               color: '#67e8f9',
               marginTop: 3,
-              letterSpacing: 0.3,
+              letterSpacing: 0.4,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
             }}
           >
+            <span style={{ color: '#fbbf24', fontSize: 10 }}>▶</span>
             {PHASE_LABELS[data.phase] ?? data.phase}
           </div>
         </div>
@@ -794,20 +854,32 @@ export function StageCanvas({
         <div
           data-testid="stage-leaderboard"
           style={{
-            background: 'linear-gradient(135deg, rgba(8, 16, 40, 0.96), rgba(12, 24, 56, 0.94))',
+            background: 'linear-gradient(135deg, rgba(8, 16, 42, 0.96) 0%, rgba(12, 24, 60, 0.94) 100%)',
             border: '2px solid #06b6d4',
             borderRadius: 14,
             padding: '6px 12px',
             flex: 1,
             maxWidth: 440,
-            boxShadow: '0 8px 20px rgba(0,0,0,0.55)',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.08)',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
-            <span style={{ fontSize: 11.5, fontWeight: 900, color: '#fbbf24', letterSpacing: 0.4 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <span style={{ fontSize: 12, fontWeight: 900, color: '#fbbf24', letterSpacing: 0.4 }}>
               🏆 BẢNG XẾP HẠNG TOP 5
             </span>
-            <span style={{ fontSize: 10.5, fontWeight: 700, color: '#67e8f9' }}>Đúng +10đ/câu</span>
+            <span
+              style={{
+                fontSize: 10.5,
+                fontWeight: 800,
+                color: '#22d3ee',
+                background: 'rgba(6, 182, 212, 0.15)',
+                padding: '1px 6px',
+                borderRadius: 4,
+                border: '1px solid rgba(6, 182, 212, 0.3)',
+              }}
+            >
+              Đúng +10đ/câu
+            </span>
           </div>
           {data.leaderboard.length === 0 ? (
             <div style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', padding: '4px 0' }}>
@@ -819,12 +891,16 @@ export function StageCanvas({
                 <div
                   key={row.userId}
                   style={{
-                    background: row.rank === 1 ? 'rgba(245, 158, 11, 0.2)' : 'rgba(15, 23, 42, 0.85)',
+                    background:
+                      row.rank === 1
+                        ? 'linear-gradient(180deg, rgba(245, 158, 11, 0.28) 0%, rgba(15, 23, 42, 0.9) 100%)'
+                        : 'rgba(15, 23, 42, 0.85)',
                     border: `1px solid ${row.rank === 1 ? '#fbbf24' : '#1e3a8a'}`,
                     borderRadius: 8,
                     padding: '3px 5px',
                     textAlign: 'center',
                     minWidth: 0,
+                    boxShadow: row.rank === 1 ? '0 0 10px rgba(251, 191, 36, 0.35)' : 'none',
                   }}
                 >
                   <div
@@ -837,9 +913,9 @@ export function StageCanvas({
                       textOverflow: 'ellipsis',
                     }}
                   >
-                    #{row.rank} {row.nickname}
+                    {row.rank === 1 ? '🥇' : row.rank === 2 ? '🥈' : row.rank === 3 ? '🥉' : `#${row.rank}`} {row.nickname}
                   </div>
-                  <div style={{ fontSize: 11.5, fontWeight: 900, color: '#22d3ee' }}>{row.points}đ</div>
+                  <div style={{ fontSize: 12, fontWeight: 900, color: '#22d3ee' }}>{row.points}đ</div>
                 </div>
               ))}
             </div>
@@ -870,15 +946,15 @@ export function StageCanvas({
           data-mc-pose={mcPose}
           style={{
             width: 176,
-            background: 'linear-gradient(180deg, rgba(12, 24, 56, 0.94) 0%, rgba(6, 12, 30, 0.98) 100%)',
+            background: 'linear-gradient(180deg, rgba(12, 24, 60, 0.96) 0%, rgba(6, 12, 32, 0.98) 100%)',
             border: `2px solid ${mcPose === '06' ? '#ef4444' : mcPose === '07' ? '#fde047' : '#fbbf24'}`,
             borderRadius: 16,
-            padding: '5px 4px',
+            padding: '6px 4px',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'space-between',
-            boxShadow: '0 10px 24px rgba(0,0,0,0.65)',
+            boxShadow: '0 12px 28px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.1)',
             flexShrink: 0,
             overflow: 'hidden',
           }}
@@ -890,9 +966,10 @@ export function StageCanvas({
                 color: '#090d1b',
                 fontSize: 10.5,
                 fontWeight: 900,
-                padding: '2px 7px',
+                padding: '2px 8px',
                 borderRadius: 99,
                 whiteSpace: 'nowrap',
+                boxShadow: '0 2px 6px rgba(245, 158, 11, 0.4)',
               }}
             >
               🎤 MC #{mcPose}
@@ -922,9 +999,10 @@ export function StageCanvas({
               background: 'linear-gradient(180deg, #1e3a8a 0%, #0f172a 100%)',
               border: '1.5px solid #22d3ee',
               borderRadius: 10,
-              padding: '3px 5px',
+              padding: '3px 6px',
               textAlign: 'center',
               overflow: 'hidden',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
             }}
           >
             <div style={{ fontSize: 9.5, fontWeight: 900, color: '#fde047', whiteSpace: 'nowrap' }}>
@@ -933,16 +1011,16 @@ export function StageCanvas({
             <div
               data-testid="stage-mc-speech"
               style={{
-                fontSize: 9.8,
+                fontSize: 10,
                 fontWeight: 700,
                 color: '#e0f2fe',
                 marginTop: 1,
-                lineHeight: 1.15,
+                lineHeight: 1.18,
                 display: '-webkit-box',
                 WebkitLineClamp: 2,
                 WebkitBoxOrient: 'vertical',
                 overflow: 'hidden',
-                minHeight: 22,
+                minHeight: 24,
               }}
             >
               {isMcLineActive && !isReloadedOldPhase && data.mc?.text
@@ -968,14 +1046,14 @@ export function StageCanvas({
           style={{
             flex: 1,
             minWidth: 0,
-            background: 'linear-gradient(180deg, #0b193d 0%, #060f26 100%)',
+            background: 'linear-gradient(180deg, #0c1c46 0%, #050d22 100%)',
             border: '2.5px solid #22d3ee',
             borderRadius: 18,
             padding: '8px 12px',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            boxShadow: '0 14px 32px rgba(0,0,0,0.7), inset 0 0 28px rgba(6, 182, 212, 0.16)',
+            boxShadow: '0 16px 36px rgba(0,0,0,0.75), inset 0 0 32px rgba(6, 182, 212, 0.18)',
             overflow: 'hidden',
           }}
         >
@@ -989,10 +1067,11 @@ export function StageCanvas({
                   color: '#ffffff',
                   fontWeight: 900,
                   fontSize: 15,
-                  padding: '3px 10px',
+                  padding: '3px 11px',
                   borderRadius: 8,
                   border: '1.5px solid #fdba74',
                   whiteSpace: 'nowrap',
+                  boxShadow: '0 2px 8px rgba(234, 88, 12, 0.45)',
                 }}
               >
                 {data.question ? `CÂU #${data.question.code}` : 'GHẾ NÓNG'}
@@ -1000,11 +1079,11 @@ export function StageCanvas({
               {data.question && (
                 <span
                   style={{
-                    background: 'rgba(6, 182, 212, 0.18)',
+                    background: 'rgba(6, 182, 212, 0.2)',
                     color: '#67e8f9',
                     fontWeight: 800,
                     fontSize: 12.5,
-                    padding: '3px 8px',
+                    padding: '3px 9px',
                     borderRadius: 8,
                     border: '1px solid #06b6d4',
                     whiteSpace: 'nowrap',
@@ -1026,6 +1105,7 @@ export function StageCanvas({
             <div
               data-testid="stage-timer"
               data-countdown-sfx={lastCountdownSec ?? ''}
+              className={data.phase === 'OPEN' && remainSec !== null && remainSec <= 5 && !reduceMotion ? 'anim-timer-alert' : undefined}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -1044,13 +1124,16 @@ export function StageCanvas({
                       : '#22d3ee'
                 }`,
                 borderRadius: 99,
-                padding: '3px 12px',
-                boxShadow: '0 0 16px rgba(251, 191, 36, 0.35)',
+                padding: '3px 14px',
+                boxShadow:
+                  data.phase === 'OPEN' && remainSec !== null && remainSec <= 5
+                    ? '0 0 20px rgba(239, 68, 68, 0.8)'
+                    : '0 0 16px rgba(251, 191, 36, 0.4)',
                 flexShrink: 0,
               }}
             >
-              <span style={{ fontSize: 12, fontWeight: 800, color: '#fde68a' }}>⏱️</span>
-              <span style={{ fontSize: 22, fontWeight: 900, color: '#ffffff', lineHeight: 1 }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: '#fde68a' }}>⏱️</span>
+              <span style={{ fontSize: 23, fontWeight: 900, color: '#ffffff', lineHeight: 1 }}>
                 {remainSec !== null ? `${remainSec}s` : '—'}
               </span>
             </div>
@@ -1067,42 +1150,49 @@ export function StageCanvas({
                     fontWeight: 800,
                     lineHeight: 1.22,
                     color: '#ffffff',
-                    margin: '2px 0',
+                    margin: '3px 0',
+                    textShadow: '0 1px 3px rgba(0,0,0,0.6)',
                   }}
                 >
                   {data.question.text}
                 </div>
 
                 {/* 4 lựa chọn A, B, C, D — tự động điều chỉnh cỡ chữ khi đáp án dài, không cắt chữ */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
                   {(['A', 'B', 'C', 'D'] as const).map((letter, idx) => {
                     const rawChoice = data.question?.choices?.[idx] ?? '';
                     const isCorrect = data.reveal?.correct === letter;
-                    const choiceFontSize = rawChoice.length > 55 ? 11.2 : rawChoice.length > 38 ? 12.2 : rawChoice.length > 24 ? 13.8 : 15.2;
+                    const choiceFontSize =
+                      rawChoice.length > 55 ? 11.2 : rawChoice.length > 38 ? 12.2 : rawChoice.length > 24 ? 13.8 : 15.2;
                     return (
                       <div
                         key={letter}
                         data-testid={`choice-${letter}`}
                         style={{
                           background: isCorrect
-                            ? 'linear-gradient(135deg, #059669, #047857)'
-                            : 'linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.92))',
+                            ? 'linear-gradient(135deg, #059669 0%, #047857 100%)'
+                            : 'linear-gradient(135deg, rgba(15, 23, 42, 0.96) 0%, rgba(30, 41, 62, 0.92) 100%)',
                           border: isCorrect ? '2.5px solid #fde047' : '1.8px solid #0891b2',
                           borderRadius: 12,
-                          padding: '4px 7px',
+                          padding: '5px 8px',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: 6,
+                          gap: 7,
                           minHeight: data.reveal ? 45 : 50,
-                          boxShadow: isCorrect ? '0 0 18px rgba(251, 191, 36, 0.45)' : 'none',
+                          boxShadow: isCorrect
+                            ? '0 0 22px rgba(251, 191, 36, 0.5), inset 0 1px 0 rgba(255,255,255,0.2)'
+                            : '0 4px 10px rgba(0,0,0,0.3)',
+                          transition: 'all 200ms ease',
                         }}
                       >
                         <span
                           style={{
-                            width: 30,
-                            height: 30,
+                            width: 32,
+                            height: 32,
                             borderRadius: 8,
-                            background: isCorrect ? '#fde047' : '#f97316',
+                            background: isCorrect
+                              ? 'linear-gradient(135deg, #fef08a, #fbbf24)'
+                              : 'linear-gradient(135deg, #f97316, #ea580c)',
                             color: isCorrect ? '#090d1b' : '#ffffff',
                             fontWeight: 900,
                             fontSize: 14,
@@ -1110,6 +1200,7 @@ export function StageCanvas({
                             alignItems: 'center',
                             justifyContent: 'center',
                             flexShrink: 0,
+                            boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
                           }}
                         >
                           {data.question?.code}
@@ -1120,7 +1211,7 @@ export function StageCanvas({
                             fontSize: choiceFontSize,
                             fontWeight: 700,
                             color: '#f8fafc',
-                            lineHeight: 1.16,
+                            lineHeight: 1.18,
                           }}
                         >
                           {rawChoice}
@@ -1141,7 +1232,7 @@ export function StageCanvas({
                   textAlign: 'center',
                 }}
               >
-                <div style={{ fontSize: 23, fontWeight: 900, color: '#fbbf24' }}>
+                <div style={{ fontSize: 24, fontWeight: 900, color: '#fbbf24', textShadow: '0 2px 10px rgba(251, 191, 36, 0.4)' }}>
                   CHUẨN BỊ CÂU #{data.question.code}
                 </div>
                 <div style={{ fontSize: 15.5, fontWeight: 700, color: '#e2e8f0', marginTop: 6 }}>
@@ -1161,7 +1252,7 @@ export function StageCanvas({
                 padding: 8,
               }}
             >
-              <div style={{ fontSize: 21, fontWeight: 900, color: '#fbbf24' }}>
+              <div style={{ fontSize: 21, fontWeight: 900, color: '#fbbf24', textShadow: '0 2px 8px rgba(251, 191, 36, 0.4)' }}>
                 {data.phase === 'INVITING'
                   ? '🔔 ĐANG ĐẨY NGƯỜI CHỜ LÊN 5 GHẾ NÓNG (12 GIÂY)'
                   : data.phase === 'NO_QUESTIONS'
@@ -1184,16 +1275,17 @@ export function StageCanvas({
               data-testid="question-explanation"
               style={{
                 marginTop: 2,
-                padding: '2px 8px',
-                borderRadius: 7,
-                background: 'rgba(5, 150, 105, 0.32)',
-                border: '1px solid #34d399',
-                fontSize: 11.2,
+                padding: '3px 10px',
+                borderRadius: 8,
+                background: 'linear-gradient(90deg, rgba(5, 150, 105, 0.4) 0%, rgba(4, 120, 87, 0.3) 100%)',
+                border: '1.5px solid #34d399',
+                fontSize: 11.5,
                 color: '#ecfdf5',
                 fontWeight: 700,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
               }}
             >
               ✅ Đáp án {data.reveal.correct}: {data.reveal.explanation} ({data.reveal.totalCorrect}/
@@ -1208,13 +1300,14 @@ export function StageCanvas({
             data-testid="command-guide-box"
             style={{
               marginTop: 2,
-              padding: '4px 8px',
+              padding: '4px 10px',
               borderRadius: 10,
-              background: 'rgba(15, 23, 42, 0.94)',
+              background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.96) 0%, rgba(10, 18, 36, 0.98) 100%)',
               border: '1.5px solid #fbbf24',
               display: 'flex',
               flexDirection: 'column',
               gap: 2,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
             }}
           >
             {/* Dòng 1 cố định: Cách tham gia */}
@@ -1229,11 +1322,11 @@ export function StageCanvas({
             >
               <span
                 style={{
-                  background: '#0e7490',
+                  background: 'linear-gradient(90deg, #0284c7, #0e7490)',
                   color: '#ecfeff',
                   fontSize: 9.2,
                   fontWeight: 900,
-                  padding: '1px 5px',
+                  padding: '1px 6px',
                   borderRadius: 4,
                   border: '1px solid #22d3ee',
                   flexShrink: 0,
@@ -1243,7 +1336,7 @@ export function StageCanvas({
               </span>
               <span
                 style={{
-                  fontSize: 10.2,
+                  fontSize: 10.5,
                   fontWeight: 700,
                   color: '#cbd5e1',
                   whiteSpace: 'nowrap',
@@ -1268,7 +1361,7 @@ export function StageCanvas({
               <span
                 data-testid="guide-dynamic-badge"
                 style={{
-                  background: '#fbbf24',
+                  background: 'linear-gradient(90deg, #f59e0b, #fbbf24)',
                   color: '#090d1b',
                   fontSize: 9.8,
                   fontWeight: 900,
@@ -1322,15 +1415,15 @@ export function StageCanvas({
               style={{
                 background:
                   n.kind === 'gift'
-                    ? 'linear-gradient(90deg, rgba(234, 88, 12, 0.96), rgba(180, 83, 9, 0.96))'
-                    : 'rgba(8, 16, 40, 0.95)',
+                    ? 'linear-gradient(90deg, rgba(234, 88, 12, 0.96) 0%, rgba(180, 83, 9, 0.96) 100%)'
+                    : 'linear-gradient(90deg, rgba(8, 20, 50, 0.96) 0%, rgba(12, 32, 76, 0.96) 100%)',
                 border: `2px solid ${n.kind === 'gift' ? '#fbbf24' : '#22d3ee'}`,
                 borderRadius: 99,
-                padding: '4px 14px',
+                padding: '4px 16px',
                 fontSize: 12.5,
                 fontWeight: 800,
                 color: '#ffffff',
-                boxShadow: '0 6px 18px rgba(0,0,0,0.65)',
+                boxShadow: n.kind === 'gift' ? '0 6px 20px rgba(234, 88, 12, 0.55)' : '0 6px 18px rgba(0,0,0,0.65)',
               }}
             >
               {n.text}
@@ -1348,8 +1441,8 @@ export function StageCanvas({
           position: 'absolute',
           left: 14,
           right: 14,
-          top: 480,
-          height: 274,
+          top: 462,
+          height: 270,
           display: 'grid',
           gridTemplateColumns: 'repeat(5, 1fr)',
           gap: 6,
@@ -1426,7 +1519,7 @@ export function StageCanvas({
                       padding: '2px 8px',
                       borderRadius: 99,
                       border: '1.5px solid #fef08a',
-                      boxShadow: '0 0 12px rgba(251, 191, 36, 0.6)',
+                      boxShadow: '0 0 14px rgba(251, 191, 36, 0.7)',
                     }}
                   >
                     ✨ +10Đ · +1 CẤP
@@ -1435,13 +1528,14 @@ export function StageCanvas({
                 {visualState === 'wrong' && (
                   <span
                     style={{
-                      background: '#dc2626',
+                      background: 'linear-gradient(90deg, #ef4444, #dc2626)',
                       color: '#ffffff',
                       fontSize: 11,
                       fontWeight: 900,
                       padding: '2px 8px',
                       borderRadius: 99,
                       border: '1px solid #fca5a5',
+                      boxShadow: '0 2px 8px rgba(239, 68, 68, 0.45)',
                     }}
                   >
                     {occ?.result === 'none' || dep?.result === 'none' ? '⏰ HẾT GIỜ' : '✗ RỚT GHẾ'}
@@ -1450,13 +1544,14 @@ export function StageCanvas({
                 {visualState === 'locked' && (
                   <span
                     style={{
-                      background: '#0891b2',
+                      background: 'linear-gradient(90deg, #0284c7, #0891b2)',
                       color: '#ecfeff',
                       fontSize: 10.5,
                       fontWeight: 900,
                       padding: '2px 8px',
                       borderRadius: 99,
                       border: '1px solid #67e8f9',
+                      boxShadow: '0 2px 8px rgba(8, 145, 178, 0.45)',
                     }}
                   >
                     🔒 ĐÃ KHÓA ĐÁP ÁN
@@ -1465,12 +1560,13 @@ export function StageCanvas({
                 {visualState === 'inviting' && (
                   <span
                     style={{
-                      background: '#fbbf24',
+                      background: 'linear-gradient(90deg, #f59e0b, #fbbf24)',
                       color: '#090d1b',
                       fontSize: 10.5,
                       fontWeight: 900,
                       padding: '2px 8px',
                       borderRadius: 99,
+                      boxShadow: '0 2px 8px rgba(251, 191, 36, 0.5)',
                     }}
                   >
                     ⏳ ĐANG MỜI ({invRemain}s)
@@ -1479,7 +1575,7 @@ export function StageCanvas({
                 {visualState === 'playing' && (
                   <span
                     style={{
-                      background: 'rgba(249, 115, 22, 0.25)',
+                      background: 'linear-gradient(90deg, rgba(249, 115, 22, 0.35), rgba(234, 88, 12, 0.35))',
                       color: '#fed7aa',
                       fontSize: 10.5,
                       fontWeight: 800,
@@ -1520,13 +1616,13 @@ export function StageCanvas({
                 style={{
                   width: '100%',
                   background: occ
-                    ? 'linear-gradient(180deg, rgba(15, 23, 42, 0.96) 0%, rgba(8, 13, 28, 0.98) 100%)'
-                    : 'rgba(9, 13, 28, 0.86)',
+                    ? 'linear-gradient(180deg, rgba(15, 23, 42, 0.96) 0%, rgba(8, 13, 30, 0.98) 100%)'
+                    : 'rgba(9, 13, 30, 0.88)',
                   border: `2px solid ${cardBorder}`,
                   borderRadius: 12,
                   padding: '5px 5px',
                   textAlign: 'center',
-                  boxShadow: occ ? `0 8px 18px rgba(0,0,0,0.65), 0 0 12px ${cardBorder}44` : 'none',
+                  boxShadow: occ ? `0 8px 20px rgba(0,0,0,0.7), 0 0 12px ${cardBorder}44` : 'none',
                 }}
               >
                 <div
@@ -1553,7 +1649,7 @@ export function StageCanvas({
                     marginTop: 3,
                     padding: '2px 5px',
                     borderRadius: 6,
-                    background: occ ? 'rgba(6, 182, 212, 0.16)' : 'rgba(30, 41, 59, 0.45)',
+                    background: occ ? 'rgba(6, 182, 212, 0.18)' : 'rgba(30, 41, 59, 0.45)',
                   }}
                 >
                   <span
@@ -1594,8 +1690,8 @@ export function StageCanvas({
         data-testid="waiting-seats-section"
         style={{
           position: 'absolute',
-          left: 94,
-          right: 94,
+          left: 56,
+          right: 56,
           top: 750,
           pointerEvents: 'none',
           zIndex: 11,
@@ -1613,7 +1709,18 @@ export function StageCanvas({
           <span style={{ fontSize: 12.5, fontWeight: 900, color: '#22d3ee', letterSpacing: 0.3, whiteSpace: 'nowrap' }}>
             ⏳ 10 GHẾ CHỜ (2 HÀNG × 5 GHẾ — TỰ ĐẨY LÊN GHẾ NÓNG)
           </span>
-          <span style={{ fontSize: 11.5, fontWeight: 800, color: '#fde68a', whiteSpace: 'nowrap' }}>
+          <span
+            style={{
+              fontSize: 11.5,
+              fontWeight: 800,
+              color: '#fde68a',
+              background: 'rgba(245, 158, 11, 0.15)',
+              padding: '1px 7px',
+              borderRadius: 6,
+              border: '1px solid rgba(245, 158, 11, 0.35)',
+              whiteSpace: 'nowrap',
+            }}
+          >
             {data.registeredMore > 0
               ? `+${data.registeredMore} người chờ tiếp theo`
               : `${data.waiting.length}/10 ghế có người`}
@@ -1674,15 +1781,15 @@ export function StageCanvas({
             left: '50%',
             top: 952,
             transform: 'translateX(-50%)',
-            background: 'linear-gradient(90deg, rgba(8, 16, 40, 0.95), rgba(15, 30, 68, 0.95))',
+            background: 'linear-gradient(90deg, rgba(8, 16, 42, 0.96) 0%, rgba(15, 30, 72, 0.96) 100%)',
             border: '1.5px solid #06b6d4',
             borderRadius: 99,
-            padding: '4px 16px',
+            padding: '5px 18px',
             fontSize: 12,
             fontWeight: 800,
             color: '#e0f2fe',
             whiteSpace: 'nowrap',
-            boxShadow: '0 4px 14px rgba(0,0,0,0.6)',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.65)',
           }}
         >
           🏟️ KHÁN ĐÀI CHỮ U: {Math.min(data.audience.length, U_STAND_SLOTS.length)}/{U_STAND_SLOTS.length} ghế khán giả
@@ -1701,27 +1808,27 @@ export function StageCanvas({
           className={isFreshReward ? 'anim-honor' : undefined}
           style={{
             position: 'absolute',
-            left: 202,
+            left: 200,
             right: 18,
-            top: 168,
-            background: 'linear-gradient(135deg, rgba(8, 16, 40, 0.98), rgba(23, 37, 84, 0.98))',
+            top: 164,
+            background: 'linear-gradient(135deg, rgba(8, 16, 42, 0.98) 0%, rgba(24, 38, 88, 0.98) 100%)',
             border: '3px solid #fbbf24',
             borderRadius: 20,
-            padding: '14px 16px',
+            padding: '16px 18px',
             textAlign: 'center',
-            boxShadow: '0 20px 50px rgba(0,0,0,0.88), 0 0 36px rgba(251, 191, 36, 0.5)',
+            boxShadow: '0 24px 60px rgba(0,0,0,0.92), 0 0 40px rgba(251, 191, 36, 0.55)',
             zIndex: 30,
             pointerEvents: 'none',
           }}
         >
           {data.honor.allFloor && (
-            <div style={{ fontSize: 22, fontWeight: 900, color: '#fde047', marginBottom: 6 }}>
+            <div style={{ fontSize: 23, fontWeight: 900, color: '#fde047', marginBottom: 6, textShadow: '0 2px 10px rgba(251, 191, 36, 0.6)' }}>
               🔥 CẢ 5 GHẾ NÓNG CÙNG THẮNG! 🔥
             </div>
           )}
           {data.honor.kind === 'milestone' ? (
             <>
-              <div style={{ fontSize: 18, fontWeight: 900, color: '#22d3ee', marginBottom: 10 }}>
+              <div style={{ fontSize: 18, fontWeight: 900, color: '#22d3ee', marginBottom: 10, letterSpacing: 0.3 }}>
                 🏅 VINH DANH ĐẠT MỐC HUY HIỆU & KỶ LỤC MỚI ({data.honor.entries.length} NGƯỜI CHƠI)
               </div>
               <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -1729,13 +1836,14 @@ export function StageCanvas({
                   <div
                     key={e.userId}
                     style={{
-                      background: 'linear-gradient(135deg, rgba(234, 88, 12, 0.28), rgba(15, 23, 42, 0.95))',
+                      background: 'linear-gradient(135deg, rgba(234, 88, 12, 0.32) 0%, rgba(15, 23, 42, 0.96) 100%)',
                       border: '2px solid #fbbf24',
                       borderRadius: 14,
-                      padding: '6px 12px',
+                      padding: '6px 14px',
                       display: 'flex',
                       alignItems: 'center',
                       gap: 8,
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
                     }}
                   >
                     <Character25D template={e.template} pose="correct" size={42} showShadow={false} />
@@ -1750,7 +1858,7 @@ export function StageCanvas({
               </div>
             </>
           ) : data.honor.kind === 'keep' ? (
-            <div style={{ fontSize: 23, fontWeight: 900, color: '#fde047' }}>
+            <div style={{ fontSize: 23, fontWeight: 900, color: '#fde047', textShadow: '0 2px 10px rgba(251, 191, 36, 0.5)' }}>
               ✨ {data.honor.keepCount} GHẾ NÓNG TRẢ LỜI ĐÚNG (+10Đ & +1 CẤP)
             </div>
           ) : (
@@ -1771,15 +1879,15 @@ export function StageCanvas({
             left: 48,
             right: 48,
             top: 350,
-            background: 'rgba(8, 16, 40, 0.98)',
+            background: 'linear-gradient(135deg, rgba(8, 16, 42, 0.98) 0%, rgba(15, 30, 72, 0.98) 100%)',
             border: '3px solid #22d3ee',
             borderRadius: 22,
-            padding: 20,
+            padding: 22,
             zIndex: 35,
-            boxShadow: '0 24px 60px rgba(0,0,0,0.88)',
+            boxShadow: '0 24px 60px rgba(0,0,0,0.9), 0 0 30px rgba(6, 182, 212, 0.35)',
           }}
         >
-          <div style={{ fontSize: 22, fontWeight: 900, color: '#fbbf24', textAlign: 'center', marginBottom: 12 }}>
+          <div style={{ fontSize: 23, fontWeight: 900, color: '#fbbf24', textAlign: 'center', marginBottom: 14, textShadow: '0 2px 10px rgba(251, 191, 36, 0.5)' }}>
             {data.phase === 'ENDED' ? '🏆 TỔNG KẾT PHIÊN LIVE' : '📊 BẢNG XẾP HẠNG VÒNG VỪA KẾT THÚC'}
           </div>
           {(data.phase === 'ENDED' ? data.finalBoard : data.roundBoard)?.map((r) => (
@@ -1788,16 +1896,16 @@ export function StageCanvas({
               style={{
                 display: 'flex',
                 justifyContent: 'space-between',
-                padding: '6px 12px',
+                padding: '7px 14px',
                 borderBottom: '1px solid #1e293b',
                 fontSize: 15,
                 fontWeight: 800,
               }}
             >
               <span>
-                Hạng #{r.rank} — {r.nickname}
+                {r.rank === 1 ? '🥇' : r.rank === 2 ? '🥈' : r.rank === 3 ? '🥉' : `#${r.rank}`} {r.nickname}
               </span>
-              <span style={{ color: '#fde047' }}>{r.points} điểm</span>
+              <span style={{ color: '#fde047', fontWeight: 900 }}>{r.points} điểm</span>
             </div>
           ))}
         </div>
