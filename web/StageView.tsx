@@ -1236,7 +1236,7 @@ export function StageCanvas({
                   CHUẨN BỊ CÂU #{data.question.code}
                 </div>
                 <div style={{ fontSize: 15.5, fontWeight: 700, color: '#e2e8f0', marginTop: 6 }}>
-                  Chủ đề: <b style={{ color: '#22d3ee' }}>{data.question.topic}</b> · Mở đề sau {remainSec ?? 5} giây!
+                  Chủ đề: <b style={{ color: '#22d3ee' }}>{data.question.topic}</b> · Mở đề sau {remainSec ?? 7} giây!
                 </div>
               </div>
             )
