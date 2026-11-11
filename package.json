@@ -13,7 +13,8 @@
     "build": "vite build",
     "lint": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
-    "test:ui": "node tests/ui/e2e.mjs"
+    "test:ui": "node tests/ui/e2e.mjs",
+    "test:audio": "node tests/ui/audio.e2e.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^6.1.1",

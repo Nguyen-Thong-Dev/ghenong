@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { StageCanvas, StageFrame, type StageState } from './StageView';
+import { audioManager, type AudioSettings } from './sound';
 
 interface SimProfile {
   userId: string;
@@ -116,9 +117,30 @@ export function DashboardView() {
   const [customText, setCustomText] = useState<string>('');
   const [feedback, setFeedback] = useState<string>('');
   const [tiktokUser, setTiktokUser] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'seats' | 'players' | 'questions' | 'logs'>('logs');
+  const [activeTab, setActiveTab] = useState<'seats' | 'players' | 'questions' | 'logs' | 'audio'>('logs');
   const [showSafeGuide, setShowSafeGuide] = useState<boolean>(false);
   const [modReason, setModReason] = useState<string>('Vi phạm nội quy phòng live');
+
+  // Quản lý âm thanh tập trung
+  const [audioSettings, setAudioSettings] = useState<AudioSettings>(() => audioManager.getSettings());
+  const [audioSuspended, setAudioSuspended] = useState(false);
+  const [previewing, setPreviewing] = useState<string | null>(null);
+
+  useEffect(() => {
+    const unsub = audioManager.subscribe((s) => {
+      setAudioSettings(s);
+    });
+    const check = () => {
+      setAudioSuspended(audioManager.isSuspended());
+      setPreviewing(audioManager.getPreviewingSound());
+    };
+    check();
+    const t = setInterval(check, 600);
+    return () => {
+      unsub();
+      clearInterval(t);
+    };
+  }, []);
 
   // Form thêm câu hỏi mới
   const [newQ, setNewQ] = useState({
@@ -666,6 +688,9 @@ export function DashboardView() {
             <TabBtn active={activeTab === 'logs'} onClick={() => setActiveTab('logs')}>
               📜 Nhật ký lệnh & Giải thích ({admin.log.length})
             </TabBtn>
+            <TabBtn active={activeTab === 'audio'} onClick={() => setActiveTab('audio')} testId="tab-audio">
+              🎚️ Âm thanh & Nhạc nền {audioSettings.masterMuted ? '(🔇 Tắt)' : ''}
+            </TabBtn>
             <TabBtn active={activeTab === 'seats'} onClick={() => setActiveTab('seats')}>
               🪑 5 Ghế nóng & Hàng chờ ({admin.queue.length})
             </TabBtn>
@@ -676,6 +701,478 @@ export function DashboardView() {
               📚 Ngân hàng câu hỏi ({admin.questions.length})
             </TabBtn>
           </div>
+
+          {/* TAB: BẢNG ĐIỀU KHIỂN ÂM THANH CHO NGƯỜI VẬN HÀNH */}
+          {activeTab === 'audio' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', maxHeight: 340, paddingRight: 4 }}>
+              {/* THANH ĐIỀU KHIỂN CHÍNH & MUTE ALL */}
+              <div
+                style={{
+                  background: '#090d1a',
+                  border: '1.5px solid #1e293b',
+                  borderRadius: 12,
+                  padding: 12,
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <button
+                    data-testid="audio-btn-mute-all"
+                    onClick={() => audioManager.setMasterMuted(!audioSettings.masterMuted)}
+                    style={{
+                      background: audioSettings.masterMuted ? '#dc2626' : '#10b981',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: 10,
+                      padding: '8px 16px',
+                      fontSize: 13,
+                      fontWeight: 900,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <span>{audioSettings.masterMuted ? '🔇 ĐANG TẮT TOÀN BỘ' : '🔊 ÂM THANH ĐANG BẬT'}</span>
+                    <span style={{ fontSize: 11, opacity: 0.85 }}>(Bấm để {audioSettings.masterMuted ? 'bật' : 'tắt toàn bộ'})</span>
+                  </button>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: '#94a3b8' }}>
+                      Âm lượng Tổng:
+                    </span>
+                    <input
+                      data-testid="audio-slider-master"
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={Math.round(audioSettings.masterVolume * 100)}
+                      onChange={(e) => audioManager.setMasterVolume(Number(e.target.value) / 100)}
+                      style={{ width: 130 }}
+                    />
+                    <span style={{ fontSize: 12.5, fontWeight: 800, color: '#fde047', minWidth: 36 }}>
+                      {Math.round(audioSettings.masterVolume * 100)}%
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {audioSuspended ? (
+                    <button
+                      onClick={() => void audioManager.resumeContext()}
+                      style={{
+                        background: '#f59e0b',
+                        color: '#0f172a',
+                        border: 'none',
+                        borderRadius: 8,
+                        padding: '6px 12px',
+                        fontSize: 12,
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      🔓 Trình duyệt đang chặn âm thanh — Bấm mở
+                    </button>
+                  ) : (
+                    <span style={{ fontSize: 12, color: '#34d399', fontWeight: 700 }}>
+                      ● Bộ phát âm thanh: Đang hoạt động
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* 3 KÊNH ÂM THANH ĐỘC LẬP (BGM, SFX, GIỌNG MC) */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 10 }}>
+                {/* KÊNH 1: NHẠC NỀN (BGM) */}
+                <div
+                  style={{
+                    background: '#090d1a',
+                    border: '1px solid #1e293b',
+                    borderRadius: 12,
+                    padding: 12,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: '#38bdf8' }}>
+                      🎵 NHẠC NỀN (BGM)
+                    </span>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer', fontWeight: 700 }}>
+                      <input
+                        data-testid="audio-toggle-bgm"
+                        type="checkbox"
+                        checked={audioSettings.bgmEnabled}
+                        onChange={(e) => audioManager.setBgmEnabled(e.target.checked)}
+                      />
+                      {audioSettings.bgmEnabled ? 'Bật' : 'Tắt'}
+                    </label>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11.5, color: '#94a3b8' }}>Âm lượng:</span>
+                    <input
+                      data-testid="audio-slider-bgm"
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={Math.round(audioSettings.bgmVolume * 100)}
+                      onChange={(e) => audioManager.setBgmVolume(Number(e.target.value) / 100)}
+                      style={{ flex: 1 }}
+                    />
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: '#cbd5e1', minWidth: 32 }}>
+                      {Math.round(audioSettings.bgmVolume * 100)}%
+                    </span>
+                  </div>
+
+                  {/* CHỌN BÀI NỀN */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11.5, color: '#94a3b8' }}>Chế độ phát bài:</span>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                      <button
+                        onClick={() => audioManager.setBgmTrack('auto')}
+                        style={{
+                          background: audioSettings.bgmTrack === 'auto' ? '#0284c7' : '#1e293b',
+                          color: '#f8fafc',
+                          border: 'none',
+                          borderRadius: 6,
+                          padding: '5px 8px',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        📻 Tự động theo trạng thái
+                      </button>
+                      <button
+                        onClick={() => audioManager.setBgmTrack('lobby')}
+                        style={{
+                          background: audioSettings.bgmTrack === 'lobby' ? '#0284c7' : '#1e293b',
+                          color: '#f8fafc',
+                          border: 'none',
+                          borderRadius: 6,
+                          padding: '5px 8px',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        🎷 Nhạc giao lưu (Funky)
+                      </button>
+                      <button
+                        onClick={() => audioManager.setBgmTrack('thinking')}
+                        style={{
+                          background: audioSettings.bgmTrack === 'thinking' ? '#0284c7' : '#1e293b',
+                          color: '#f8fafc',
+                          border: 'none',
+                          borderRadius: 6,
+                          padding: '5px 8px',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        🧠 Nhạc suy nghĩ (Pulse)
+                      </button>
+                      <button
+                        onClick={() => audioManager.setBgmTrack('off')}
+                        style={{
+                          background: audioSettings.bgmTrack === 'off' ? '#b91c1c' : '#1e293b',
+                          color: '#f8fafc',
+                          border: 'none',
+                          borderRadius: 6,
+                          padding: '5px 8px',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ⏹️ Tắt nhạc nền
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: 11, color: '#64748b', fontStyle: 'italic', marginTop: 2 }}>
+                    💡 Tự động giảm 10 dB khi MC nói để nghe rõ lời; tăng lại mượt khi nói xong.
+                  </div>
+                </div>
+
+                {/* KÊNH 2: HIỆU ỨNG ÂM THANH (SFX) */}
+                <div
+                  style={{
+                    background: '#090d1a',
+                    border: '1px solid #1e293b',
+                    borderRadius: 12,
+                    padding: 12,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: '#38bdf8' }}>
+                      ⚡ HIỆU ỨNG ÂM THANH (SFX)
+                    </span>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer', fontWeight: 700 }}>
+                      <input
+                        data-testid="audio-toggle-sfx"
+                        type="checkbox"
+                        checked={audioSettings.sfxEnabled}
+                        onChange={(e) => {
+                          audioManager.setSfxEnabled(e.target.checked);
+                          void callApi('/api/admin/config/display', { sfxEnabled: e.target.checked });
+                        }}
+                      />
+                      {audioSettings.sfxEnabled ? 'Bật' : 'Tắt'}
+                    </label>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11.5, color: '#94a3b8' }}>Âm lượng:</span>
+                    <input
+                      data-testid="audio-slider-sfx"
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={Math.round(audioSettings.sfxVolume * 100)}
+                      onChange={(e) => audioManager.setSfxVolume(Number(e.target.value) / 100)}
+                      style={{ flex: 1 }}
+                    />
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: '#cbd5e1', minWidth: 32 }}>
+                      {Math.round(audioSettings.sfxVolume * 100)}%
+                    </span>
+                  </div>
+
+                  <div style={{ fontSize: 11.5, color: '#94a3b8' }}>
+                    Gồm: Đếm ngược (10..1s), Trả lời đúng, Trả lời sai, Đổi ghế, Vinh danh.
+                  </div>
+
+                  <div style={{ fontSize: 11, color: '#64748b', fontStyle: 'italic', marginTop: 'auto' }}>
+                    💡 Với 5 ghế nóng, công bố chung 1 hiệu ứng thống nhất, chống chồng âm gây ồn.
+                  </div>
+                </div>
+
+                {/* KÊNH 3: GIỌNG ĐỌC MC (TTS) */}
+                <div
+                  style={{
+                    background: '#090d1a',
+                    border: '1px solid #1e293b',
+                    borderRadius: 12,
+                    padding: 12,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: '#38bdf8' }}>
+                      🎙️ GIỌNG ĐỌC MC (TTS)
+                    </span>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer', fontWeight: 700 }}>
+                      <input
+                        data-testid="audio-toggle-mc"
+                        type="checkbox"
+                        checked={audioSettings.mcEnabled}
+                        onChange={(e) => {
+                          audioManager.setMcEnabled(e.target.checked);
+                          void callApi('/api/admin/config/display', { ttsEnabled: e.target.checked });
+                        }}
+                      />
+                      {audioSettings.mcEnabled ? 'Bật' : 'Tắt'}
+                    </label>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11.5, color: '#94a3b8' }}>Âm lượng:</span>
+                    <input
+                      data-testid="audio-slider-mc"
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={Math.round(audioSettings.mcVolume * 100)}
+                      onChange={(e) => audioManager.setMcVolume(Number(e.target.value) / 100)}
+                      style={{ flex: 1 }}
+                    />
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: '#cbd5e1', minWidth: 32 }}>
+                      {Math.round(audioSettings.mcVolume * 100)}%
+                    </span>
+                  </div>
+
+                  <div style={{ fontSize: 11.5, color: '#94a3b8' }}>
+                    Tự động đồng bộ với hàng đợi phát thanh của MC và tư thế 01..08.
+                  </div>
+
+                  <div style={{ fontSize: 11, color: '#64748b', fontStyle: 'italic', marginTop: 'auto' }}>
+                    💡 Hàng đợi tự gỡ kẹt tối đa 6s bảo đảm không bao giờ làm treo luồng game.
+                  </div>
+                </div>
+              </div>
+
+              {/* KHU VỰC NGHE THỬ ÂM THANH (PREVIEW SOUNDBOARD) */}
+              <div
+                style={{
+                  background: '#090d1a',
+                  border: '1px solid #1e293b',
+                  borderRadius: 12,
+                  padding: 12,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 800, color: '#fbbf24' }}>
+                    🎧 BÀN PHÍM NGHE THỬ ÂM THANH (PREVIEW)
+                  </span>
+                  {previewing && (
+                    <span style={{ fontSize: 11.5, color: '#38bdf8', fontWeight: 700 }}>
+                      Đang phát thử: {previewing.toUpperCase()}...
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  <button
+                    data-testid="preview-btn-lobby"
+                    onClick={() => audioManager.previewSound('lobby')}
+                    style={{
+                      background: previewing === 'lobby' ? '#0284c7' : '#1e293b',
+                      color: '#f8fafc',
+                      border: '1px solid #334155',
+                      borderRadius: 8,
+                      padding: '6px 12px',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🎷 Nhạc giao lưu (Funky)
+                  </button>
+
+                  <button
+                    data-testid="preview-btn-thinking"
+                    onClick={() => audioManager.previewSound('thinking')}
+                    style={{
+                      background: previewing === 'thinking' ? '#0284c7' : '#1e293b',
+                      color: '#f8fafc',
+                      border: '1px solid #334155',
+                      borderRadius: 8,
+                      padding: '6px 12px',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🧠 Nhạc suy nghĩ (Pulse)
+                  </button>
+
+                  <button
+                    data-testid="preview-btn-countdown"
+                    onClick={() => audioManager.previewSound('countdown')}
+                    style={{
+                      background: previewing === 'countdown' ? '#0284c7' : '#1e293b',
+                      color: '#f8fafc',
+                      border: '1px solid #334155',
+                      borderRadius: 8,
+                      padding: '6px 12px',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ⏱️ Đếm ngược (5s & 1s)
+                  </button>
+
+                  <button
+                    data-testid="preview-btn-correct"
+                    onClick={() => audioManager.previewSound('correct')}
+                    style={{
+                      background: previewing === 'correct' ? '#10b981' : '#1e293b',
+                      color: '#f8fafc',
+                      border: '1px solid #334155',
+                      borderRadius: 8,
+                      padding: '6px 12px',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ✅ Trả lời đúng (Chime)
+                  </button>
+
+                  <button
+                    data-testid="preview-btn-wrong"
+                    onClick={() => audioManager.previewSound('wrong')}
+                    style={{
+                      background: previewing === 'wrong' ? '#ef4444' : '#1e293b',
+                      color: '#f8fafc',
+                      border: '1px solid #334155',
+                      borderRadius: 8,
+                      padding: '6px 12px',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ❌ Trả lời sai (Buzzer)
+                  </button>
+
+                  <button
+                    data-testid="preview-btn-seat"
+                    onClick={() => audioManager.previewSound('seat')}
+                    style={{
+                      background: previewing === 'seat' ? '#0284c7' : '#1e293b',
+                      color: '#f8fafc',
+                      border: '1px solid #334155',
+                      borderRadius: 8,
+                      padding: '6px 12px',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🪑 Lên ghế nóng (Whoosh)
+                  </button>
+
+                  <button
+                    data-testid="preview-btn-honor"
+                    onClick={() => audioManager.previewSound('honor')}
+                    style={{
+                      background: previewing === 'honor' ? '#f59e0b' : '#1e293b',
+                      color: '#f8fafc',
+                      border: '1px solid #334155',
+                      borderRadius: 8,
+                      padding: '6px 12px',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🏆 Vinh danh (Fanfare)
+                  </button>
+
+                  <button
+                    data-testid="preview-btn-stop"
+                    onClick={() => audioManager.stopPreview()}
+                    style={{
+                      background: '#334155',
+                      color: '#e2e8f0',
+                      border: 'none',
+                      borderRadius: 8,
+                      padding: '6px 12px',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ⏹️ Dừng phát thử
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* TAB 1: NHẬT KÝ LỆNH & CẤU HÌNH */}
           {activeTab === 'logs' && (
@@ -1131,9 +1628,10 @@ function Btn({
   );
 }
 
-function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function TabBtn({ active, onClick, children, testId }: { active: boolean; onClick: () => void; children: React.ReactNode; testId?: string }) {
   return (
     <button
+      data-testid={testId}
       onClick={onClick}
       style={{
         background: active ? '#0284c7' : '#1e293b',

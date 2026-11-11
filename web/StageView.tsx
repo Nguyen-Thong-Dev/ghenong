@@ -10,7 +10,7 @@ import {
   type HotSeatVisualState,
   type McPoseCode,
 } from './Character25D';
-import { stageSfx, stageVoice } from './sound';
+import { audioManager, stageSfx, stageVoice } from './sound';
 
 export const STAGE_W = 720;
 export const STAGE_H = 1280;
@@ -415,6 +415,7 @@ export function StageCanvas({
   const [questionSpeechEndedAt, setQuestionSpeechEndedAt] = useState<number | null>(null);
   const [welcomeUntilAt, setWelcomeUntilAt] = useState<number>(0);
   const [lastCountdownSec, setLastCountdownSec] = useState<number | null>(null);
+  const [audioSuspended, setAudioSuspended] = useState(false);
 
   const isFirstSyncRef = useRef<boolean>(true);
   const lastFxKeyRef = useRef<string>('');
@@ -431,8 +432,21 @@ export function StageCanvas({
     stageVoice.onSpeakingChange = (speaking) => {
       setMcSpeaking(speaking);
     };
+
+    const checkSuspended = () => {
+      setAudioSuspended(audioManager.isSuspended());
+    };
+    checkSuspended();
+    window.addEventListener('pointerdown', checkSuspended, { passive: true });
+    window.addEventListener('keydown', checkSuspended, { passive: true });
+    const timer = setInterval(checkSuspended, 1200);
+
     return () => {
       stageVoice.onSpeakingChange = undefined;
+      window.removeEventListener('pointerdown', checkSuspended);
+      window.removeEventListener('keydown', checkSuspended);
+      clearInterval(timer);
+      audioManager.stopAll();
     };
   }, []);
 
@@ -451,6 +465,7 @@ export function StageCanvas({
     const isSpeaker = Boolean(myStageId && data.speakerId === myStageId && !mute);
     stageVoice.enabled = isSpeaker && Boolean(data.display.ttsEnabled);
     stageSfx.enabled = isSpeaker && sfxAllowed;
+    audioManager.setSpeakerAllowed(isSpeaker);
 
     const fxKey = `${data.question?.code ?? 0}:${data.phase}:${data.phaseStartedAt}`;
     const ageMs = Math.max(0, data.serverNow - data.phaseStartedAt);
@@ -471,7 +486,16 @@ export function StageCanvas({
       if (!alreadyPlayed && ageMs <= 1500) {
         setFreshRewardKey(fxKey);
         if (stageVoice.enabled) stageVoice.speakMcLine(data.mc, true);
-        if (stageSfx.enabled) stageSfx.playPhase(data.phase);
+        if (stageSfx.enabled) {
+          if (data.phase === 'REVEAL') {
+            const hasAnyCorrect = data.seats.some((s) => s.occupant?.result === 'correct');
+            audioManager.handleRevealPhase(fxKey, hasAnyCorrect);
+          } else if (data.phase === 'HONOR') {
+            audioManager.playSfx('honor');
+          } else {
+            stageSfx.playPhase(data.phase);
+          }
+        }
       } else {
         setReloadedFxKey(fxKey);
         stageVoice.markSeen(data.mc?.id);
@@ -490,7 +514,16 @@ export function StageCanvas({
         sessionStorage.setItem('gn_last_fx_key', fxKey);
       } catch {}
       setFreshRewardKey(fxKey);
-      if (stageSfx.enabled) stageSfx.playPhase(data.phase);
+      if (stageSfx.enabled) {
+        if (data.phase === 'REVEAL') {
+          const hasAnyCorrect = data.seats.some((s) => s.occupant?.result === 'correct');
+          audioManager.handleRevealPhase(fxKey, hasAnyCorrect);
+        } else if (data.phase === 'HONOR') {
+          audioManager.playSfx('honor');
+        } else {
+          stageSfx.playPhase(data.phase);
+        }
+      }
     }
 
     // Phát hiện mở vòng mới hoặc đón người mới bước lên ghế nóng -> bật nhịp chào/đón ghế ngắn (02)
@@ -505,6 +538,9 @@ export function StageCanvas({
       prevSeatedSigRef.current = seatedSig;
       if (addedSeat) {
         setWelcomeUntilAt(data.serverNow + 2400);
+        if (stageSfx.enabled) {
+          audioManager.playSfx('seat');
+        }
       }
     }
 
@@ -542,9 +578,11 @@ export function StageCanvas({
       tickNow - data.mc.at < (data.mc.durationMs ?? 4000),
   );
   useEffect(() => {
-    const bgmActive = Boolean(data && data.phase === 'OPEN' && (remainSec === null || remainSec > 5));
-    const bgmDucked = Boolean(mcSpeaking || isMcLineActive);
-    stageSfx.updateThinkingBgm(bgmActive, bgmDucked);
+    if (!data) return;
+    const isMcActive = Boolean(mcSpeaking || isMcLineActive);
+    audioManager.setGameState(data.phase, remainSec, isMcActive);
+    const bgmActive = Boolean(data.phase === 'OPEN' && (remainSec === null || remainSec > 5));
+    stageSfx.updateThinkingBgm(bgmActive, isMcActive);
     return () => {
       if (!bgmActive) stageSfx.updateThinkingBgm(false, false);
     };
@@ -1925,6 +1963,38 @@ export function StageCanvas({
             zIndex: 50,
           }}
         />
+      )}
+
+      {/* Nút mở khóa âm thanh nếu trình duyệt yêu cầu cử chỉ bấm lần đầu */}
+      {audioSuspended && Boolean(myStageId && data.speakerId === myStageId && !mute) && (
+        <button
+          data-testid="stage-audio-unlock-btn"
+          onClick={() => {
+            void audioManager.resumeContext();
+            setAudioSuspended(audioManager.isSuspended());
+          }}
+          style={{
+            position: 'absolute',
+            bottom: 10,
+            right: 14,
+            zIndex: 90,
+            background: 'rgba(2, 132, 199, 0.92)',
+            border: '1.5px solid #38bdf8',
+            color: '#ffffff',
+            borderRadius: 999,
+            padding: '5px 12px',
+            fontSize: 11.5,
+            fontWeight: 800,
+            cursor: 'pointer',
+            boxShadow: '0 4px 14px rgba(0,0,0,0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 5,
+          }}
+        >
+          <span>🔊</span>
+          <span>Bấm để mở âm thanh</span>
+        </button>
       )}
     </div>
   );
