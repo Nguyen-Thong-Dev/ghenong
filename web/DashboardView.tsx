@@ -125,6 +125,7 @@ export function DashboardView() {
   const [audioSettings, setAudioSettings] = useState<AudioSettings>(() => audioManager.getSettings());
   const [audioSuspended, setAudioSuspended] = useState(false);
   const [previewing, setPreviewing] = useState<string | null>(null);
+  const [dashboardAudioOn, setDashboardAudioOn] = useState<boolean>(false);
 
   useEffect(() => {
     const unsub = audioManager.subscribe((s) => {
@@ -1575,13 +1576,38 @@ export function DashboardView() {
         </div>
       </div>
 
-      {/* CỘT PHẢI: KHUNG XEM TRƯỚC SÂN KHẤU 9:16 TRỰC TIẾP (IM LẶNG) */}
+      {/* CỘT PHẢI: KHUNG XEM TRƯỚC SÂN KHẤU 9:16 TRỰC TIẾP */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 6 }}>
-          📱 XEM TRƯỚC SÂN KHẤU 9:16 (720×1280 · Im lặng)
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', maxWidth: 390, marginBottom: 6 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8' }}>
+            📱 XEM TRƯỚC SÂN KHẤU 9:16
+          </span>
+          <button
+            data-testid="btn-toggle-dashboard-audio"
+            onClick={() => {
+              void audioManager.resumeContext();
+              setDashboardAudioOn(!dashboardAudioOn);
+            }}
+            style={{
+              background: dashboardAudioOn ? '#059669' : '#1e293b',
+              color: '#f8fafc',
+              border: '1px solid #334155',
+              borderRadius: 6,
+              padding: '2px 8px',
+              fontSize: 11,
+              fontWeight: 800,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            <span>{dashboardAudioOn ? '🔊' : '🔈'}</span>
+            <span>{dashboardAudioOn ? 'Tiếng: BẬT' : 'Tiếng: TẮT'}</span>
+          </button>
         </div>
         <StageFrame maxWidth={390} maxHeight={window.innerHeight - 54}>
-          <StageCanvas data={admin.public} mute={true} showSafeGuide={showSafeGuide} />
+          <StageCanvas data={admin.public} mute={!dashboardAudioOn} showSafeGuide={showSafeGuide} />
         </StageFrame>
       </div>
     </div>

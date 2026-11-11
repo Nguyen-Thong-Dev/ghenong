@@ -87,12 +87,15 @@ class StageAudioManager {
 
       // Tự động mở khóa Web Audio khi người dùng tương tác lần đầu
       const unlock = () => {
-        if (this.ctx && this.ctx.state === 'suspended') {
-          void this.ctx.resume().catch(() => {});
+        const ctx = this.getContext();
+        if (ctx && ctx.state === 'suspended') {
+          void ctx.resume().then(() => this.notify());
         }
       };
       window.addEventListener('pointerdown', unlock, { passive: true });
+      window.addEventListener('click', unlock, { passive: true });
       window.addEventListener('keydown', unlock, { passive: true });
+      window.addEventListener('touchstart', unlock, { passive: true });
     }
   }
 
@@ -226,7 +229,8 @@ class StageAudioManager {
   }
 
   isSuspended(): boolean {
-    return Boolean(this.ctx && this.ctx.state === 'suspended');
+    if (!this.ctx) return true;
+    return this.ctx.state === 'suspended';
   }
 
   /** Cập nhật mức Gain theo các kênh và tính năng ducking (-10 dB khi MC nói) */
@@ -234,8 +238,7 @@ class StageAudioManager {
     if (!this.ctx || !this.masterGain || !this.bgmGain || !this.sfxGain) return;
     const now = this.ctx.currentTime;
 
-    const masterVal =
-      !this.speakerAllowed || this.settings.masterMuted ? 0 : this.settings.masterVolume;
+    const masterVal = this.settings.masterMuted ? 0 : this.settings.masterVolume;
     this.masterGain.gain.cancelScheduledValues(now);
     this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, now);
     this.masterGain.gain.linearRampToValueAtTime(masterVal, now + 0.05);
@@ -267,7 +270,7 @@ class StageAudioManager {
 
   /** Âm lượng thực tế dành cho thẻ Audio của giọng đọc MC */
   getEffectiveMcVolume(): number {
-    if (!this.speakerAllowed || this.settings.masterMuted || !this.settings.mcEnabled) return 0;
+    if (this.settings.masterMuted || !this.settings.mcEnabled) return 0;
     return Math.max(0, Math.min(1, this.settings.masterVolume * this.settings.mcVolume));
   }
 
@@ -282,6 +285,12 @@ class StageAudioManager {
    * - PREPARE, REVEAL, HONOR, ENDED: Tắt BGM để nhường lời MC và SFX
    */
   setGameState(phase: string, remainSec: number | null, isMcActive: boolean) {
+    if (!this.speakerAllowed) {
+      this.playBgmTrack('off');
+      return;
+    }
+    if (this.previewingSound) return;
+
     if (isMcActive) {
       this.setMcSpeaking(true);
     }
@@ -309,7 +318,11 @@ class StageAudioManager {
   }
 
   /** Phát bài BGM duy nhất mà không giật hoặc khởi động lại nếu đang phát bài đó */
-  playBgmTrack(track: BgmType) {
+  playBgmTrack(track: BgmType, force = false) {
+    if (!force && !this.speakerAllowed) {
+      this.stopBgmLoop();
+      return;
+    }
     if (this.currentBgmTrack === track) return;
     this.stopBgmLoop();
     this.currentBgmTrack = track;
@@ -486,12 +499,12 @@ class StageAudioManager {
    * - 'seat': lên ghế nóng
    * - 'honor': vinh danh
    */
-  playSfx(kind: SfxKind, param?: number) {
-    if (!this.settings.sfxEnabled || !this.speakerAllowed) return;
+  playSfx(kind: SfxKind, param?: number, force = false) {
+    if (!force && (!this.settings.sfxEnabled || !this.speakerAllowed)) return;
 
     // Chống phát dày đặc lặp lại trong 250ms (ngoại trừ countdown theo giây)
     const now = Date.now();
-    if (kind !== 'countdown' && this.lastSfxTime[kind] && now - this.lastSfxTime[kind] < 250) {
+    if (!force && kind !== 'countdown' && this.lastSfxTime[kind] && now - this.lastSfxTime[kind] < 250) {
       return;
     }
     this.lastSfxTime[kind] = now;
@@ -579,6 +592,7 @@ class StageAudioManager {
    * "Với kết quả của 5 ghế, dùng một hiệu ứng công bố chung; không chồng 5 âm thanh."
    */
   handleRevealPhase(phaseKey: string, hasAnyCorrect: boolean) {
+    if (!this.speakerAllowed) return;
     if (this.lastRevealPhaseKey === phaseKey) return;
     this.lastRevealPhaseKey = phaseKey;
     if (hasAnyCorrect) {
@@ -598,18 +612,18 @@ class StageAudioManager {
     this.previewingSound = sound;
 
     if (sound === 'lobby') {
-      this.playBgmTrack('lobby');
-      this.previewTimer = setTimeout(() => this.stopPreview(), 5000);
+      this.playBgmTrack('lobby', true);
+      this.previewTimer = setTimeout(() => this.stopPreview(), 6000);
     } else if (sound === 'thinking') {
-      this.playBgmTrack('thinking');
-      this.previewTimer = setTimeout(() => this.stopPreview(), 5000);
+      this.playBgmTrack('thinking', true);
+      this.previewTimer = setTimeout(() => this.stopPreview(), 6000);
     } else if (sound === 'countdown') {
-      this.playSfx('countdown', 5);
-      setTimeout(() => this.playSfx('countdown', 1), 700);
-      this.previewTimer = setTimeout(() => this.stopPreview(), 1200);
+      this.playSfx('countdown', 5, true);
+      setTimeout(() => this.playSfx('countdown', 1, true), 700);
+      this.previewTimer = setTimeout(() => this.stopPreview(), 1400);
     } else {
-      this.playSfx(sound as SfxKind);
-      this.previewTimer = setTimeout(() => this.stopPreview(), 1800);
+      this.playSfx(sound as SfxKind, undefined, true);
+      this.previewTimer = setTimeout(() => this.stopPreview(), 2000);
     }
   }
 

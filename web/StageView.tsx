@@ -416,6 +416,7 @@ export function StageCanvas({
   const [welcomeUntilAt, setWelcomeUntilAt] = useState<number>(0);
   const [lastCountdownSec, setLastCountdownSec] = useState<number | null>(null);
   const [audioSuspended, setAudioSuspended] = useState(false);
+  const isSpeaker = !mute && (!data?.speakerId || data.speakerId === myStageId || (data?.stageCount ?? 0) <= 1);
 
   const isFirstSyncRef = useRef<boolean>(true);
   const lastFxKeyRef = useRef<string>('');
@@ -462,7 +463,7 @@ export function StageCanvas({
     if (!data) return;
     setNowOffset(data.serverNow - Date.now());
     const sfxAllowed = data.display.sfxEnabled !== false;
-    const isSpeaker = Boolean(myStageId && data.speakerId === myStageId && !mute);
+    const isSpeaker = !mute && (!data.speakerId || data.speakerId === myStageId || (data.stageCount ?? 0) <= 1);
     stageVoice.enabled = isSpeaker && Boolean(data.display.ttsEnabled);
     stageSfx.enabled = isSpeaker && sfxAllowed;
     audioManager.setSpeakerAllowed(isSpeaker);
@@ -1966,7 +1967,7 @@ export function StageCanvas({
       )}
 
       {/* Nút mở khóa âm thanh nếu trình duyệt yêu cầu cử chỉ bấm lần đầu */}
-      {audioSuspended && Boolean(myStageId && data.speakerId === myStageId && !mute) && (
+      {audioSuspended && isSpeaker && !mute && (
         <button
           data-testid="stage-audio-unlock-btn"
           onClick={() => {
@@ -1975,25 +1976,25 @@ export function StageCanvas({
           }}
           style={{
             position: 'absolute',
-            bottom: 10,
+            bottom: 14,
             right: 14,
-            zIndex: 90,
-            background: 'rgba(2, 132, 199, 0.92)',
-            border: '1.5px solid #38bdf8',
+            zIndex: 9999,
+            background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
+            border: '2px solid #38bdf8',
             color: '#ffffff',
             borderRadius: 999,
-            padding: '5px 12px',
-            fontSize: 11.5,
-            fontWeight: 800,
+            padding: '7px 16px',
+            fontSize: 12.5,
+            fontWeight: 900,
             cursor: 'pointer',
-            boxShadow: '0 4px 14px rgba(0,0,0,0.6)',
+            boxShadow: '0 6px 20px rgba(0,0,0,0.7), 0 0 15px rgba(56, 189, 248, 0.4)',
             display: 'flex',
             alignItems: 'center',
-            gap: 5,
+            gap: 7,
           }}
         >
-          <span>🔊</span>
-          <span>Bấm để mở âm thanh</span>
+          <span style={{ fontSize: 16 }}>🔊</span>
+          <span>Bấm vào đây để BẬT ÂM THANH sân khấu</span>
         </button>
       )}
     </div>
