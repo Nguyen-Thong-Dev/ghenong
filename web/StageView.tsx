@@ -582,11 +582,6 @@ export function StageCanvas({
     if (!data) return;
     const isMcActive = Boolean(mcSpeaking || isMcLineActive);
     audioManager.setGameState(data.phase, remainSec, isMcActive);
-    const bgmActive = Boolean(data.phase === 'OPEN' && (remainSec === null || remainSec > 5));
-    stageSfx.updateThinkingBgm(bgmActive, isMcActive);
-    return () => {
-      if (!bgmActive) stageSfx.updateThinkingBgm(false, false);
-    };
   }, [data?.phase, remainSec, mcSpeaking, isMcLineActive]);
 
   if (!data) {
@@ -1996,6 +1991,33 @@ export function StageCanvas({
           <span style={{ fontSize: 16 }}>🔊</span>
           <span>Bấm vào đây để BẬT ÂM THANH sân khấu</span>
         </button>
+      )}
+
+      {/* Cảnh báo im lặng: cửa sổ này KHÔNG phải người phát tiếng vì có cửa sổ sân khấu khác chiếm quyền */}
+      {!isSpeaker && !mute && (
+        <div
+          data-testid="stage-muted-note"
+          style={{
+            position: 'absolute',
+            bottom: 14,
+            right: 14,
+            zIndex: 9998,
+            background: 'rgba(15, 23, 42, 0.88)',
+            border: '1.5px solid #64748b',
+            color: '#cbd5e1',
+            borderRadius: 10,
+            padding: '6px 12px',
+            fontSize: 11.5,
+            fontWeight: 700,
+            maxWidth: 320,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <span style={{ fontSize: 14 }}>🔈</span>
+          <span>Tab này đang TẮT TIẾNG vì có cửa sổ Sân khấu khác đang phát tiếng (chỉ 1 cửa sổ phát để tránh vang dội). Đóng cửa sổ kia để chuyển quyền phát.</span>
+        </div>
       )}
     </div>
   );
