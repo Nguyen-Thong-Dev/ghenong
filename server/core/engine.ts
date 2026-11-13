@@ -7,6 +7,7 @@
  */
 import { DEFAULT_RULES, RULES_VERSION, rankTitle, SHORT_RULES, type DisplayConfig, DEFAULT_DISPLAY, type RuleConfig } from './rules';
 import { parseCommand, SYNTAX_HINT, type Command } from './commands';
+import { GiftPerksStore } from './giftPerks';
 import { pickQuestion, validateQuestion } from './questions';
 import { safeDisplayName, shortName, speakableName } from './filter';
 import { buildStageGuide, joinVi } from './guide';
@@ -91,6 +92,8 @@ export class GameEngine {
   private infoCooldown = new Map<string, number>();
   private giftBuffer: { name: string; gift: string; count: number }[] = [];
   private lastGiftNoticeAt = 0;
+  /** Cấu hình quà -> hành động + kho quyền lợi (bền vững qua store meta 'gift_perks') */
+  readonly giftPerks = new GiftPerksStore();
   private dirtyPlayers = new Set<string>();
   private listeners = new Set<() => void>();
   mc: McLine | null = null;
@@ -108,6 +111,8 @@ export class GameEngine {
     this.mcDirector = new McDirector({ now: this.now, rng: this.rng });
     for (const p of this.store.loadPlayers()) this.players.set(p.userId, p);
     this.questions = this.store.loadQuestions();
+    this.giftPerks.onSave = () => this.store.setMeta('gift_perks', JSON.stringify(this.giftPerks.data));
+    this.giftPerks.load(this.store.getMeta('gift_perks'));
     const disp = this.store.getMeta('display');
     if (disp) this.display = { ...DEFAULT_DISPLAY, ...JSON.parse(disp) };
     const snap = this.store.loadSnapshot();
@@ -883,7 +888,7 @@ export class GameEngine {
     return { accepted: true, reason: `Đã khóa đáp án câu ${cur.code} (${role})` };
   }
 
-  // ---------- Quà (§13): chỉ hiệu ứng trang trí, KHÔNG đổi điểm/thứ tự/kết quả ----------
+  // ---------- Quà (§13 + cấu hình quyền lợi): cảm ơn + cấp quyền theo cấu hình ----------
   private handleGift(ev: InboundEvent): CommandOutcome {
     if (ev.eventId && !this.store.markEvent(ev.eventId, ev.source, ev.receivedAt)) {
       return { accepted: false, reason: 'Sự kiện quà trùng, bỏ qua' };
@@ -892,12 +897,280 @@ export class GameEngine {
     const g = ev.gift ?? { name: 'Quà', count: 1, diamonds: 1 };
     const count = Math.max(1, g.count | 0);
     const uid = (ev.userId || '').trim() || `guest_${name}`;
+
+    // Đảm bảo người chơi tồn tại để ghế/hàng chờ thao tác được
+    this.ensurePlayer(ev);
+    const p = this.players.get(uid);
+    if (p) p.lastActiveAt = ev.receivedAt;
+
+    // 1. Cảm ơn + hiệu ứng như cũ
     this.mcDirector.enqueueGift(uid, safeDisplayName(ev.nickname), g.name, count, ev.receivedAt);
     this.giftBuffer.push({ name, gift: g.name, count });
-    this.addLog({ kind: 'system', userId: ev.userId, nickname: ev.nickname, message: `Quà "${g.name}" ×${g.count}: chỉ hiệu ứng cảm ơn, không đổi điểm/ghế/hàng chờ` });
+
+    // 2. Cấp quyền theo cấu hình (nếu có); quà không cấu hình chỉ cảm ơn
+    let perkNote = '';
+    if (g.giftId) {
+      const res = this.giftPerks.ingestGift({
+        eventId: ev.eventId || `gift_${ev.receivedAt}_${uid}`,
+        userId: uid,
+        nickname: safeDisplayName(ev.nickname),
+        avatar: ev.avatar ?? '',
+        giftId: String(g.giftId),
+        giftName: g.name,
+        image: g.image,
+        count,
+        groupId: g.groupId,
+        at: ev.receivedAt,
+      });
+      perkNote = res.note;
+      if (res.configured) this.dispatchGrantedPerks(res.granted, ev.receivedAt);
+    } else {
+      perkNote = 'Không có Gift ID: không thể gán quyền (ghi lỗi để kiểm tra)';
+      this.addLog({ kind: 'error', userId: ev.userId, nickname: ev.nickname, message: `Quà "${g.name}" không mang Gift ID: chỉ cảm ơn, không cấp quyền, không đoán` });
+    }
+
+    this.addLog({
+      kind: 'system',
+      userId: ev.userId,
+      nickname: ev.nickname,
+      message: `Quà "${g.name}" ×${count}${g.giftId ? ` (id ${g.giftId})` : ''}: ${perkNote || 'chỉ hiệu ứng cảm ơn'}`,
+    });
     this.flushGifts();
-    this.changed();
-    return { accepted: true, reason: 'Quà chỉ dùng để cảm ơn' };
+    this.commit();
+    return { accepted: true, reason: perkNote || 'Quà chỉ dùng để cảm ơn' };
+  }
+
+  /**
+   * Thực thi quyền vừa cấp theo pha hiện tại:
+   * - skip_queue: vào ngay hàng chờ ưu tiên (không phụ thuộc pha).
+   * - steal_seat: nếu đang nghỉ giữa câu (không phải PREPARE/OPEN/REVEAL/HONOR) và có chỗ -> lên ngay;
+   *   ngược lại đánh dấu pending chờ ranh giới câu.
+   * - protect_answer: đang OPEN và trước hạn chốt -> gắn bảo vệ câu hiện tại; ngược lại giữ 'unused'
+   *   để tự bảo vệ câu kế tiếp người đó ngồi ghế.
+   */
+  private dispatchGrantedPerks(perks: import('./types').GiftPerk[], now: number) {
+    const s = this.state;
+    for (const perk of perks) {
+      if (perk.action === 'skip_queue') {
+        this.executeSkipQueuePerk(perk, now);
+      } else if (perk.action === 'steal_seat') {
+        const midQuestion = ['PREPARE', 'OPEN', 'REVEAL', 'HONOR'].includes(s.phase);
+        if (midQuestion) {
+          perk.state = 'pending_steal';
+          perk.detail = 'Chờ kết thúc câu hiện tại';
+          this.notice(`👑 ${shortName(perk.nickname, 18)} có 1 quyền cướp ghế — thực hiện sau câu này!`, 'info');
+        } else {
+          this.executeStealPerk(perk, now);
+        }
+      } else if (perk.action === 'protect_answer') {
+        const cur = s.current;
+        const seatIdx = this.seatOf(perk.userId);
+        if (cur && cur.status === 'open' && cur.closesAt != null && now < cur.closesAt && seatIdx >= 0) {
+          perk.state = 'used';
+          perk.usedAt = now;
+          perk.detail = `run:${cur.runId}`;
+          this.notice(`🛡️ ${shortName(perk.nickname, 18)} được bảo vệ cho câu ${cur.code} — sai vẫn giữ ghế!`, 'info');
+        } else {
+          perk.state = 'unused';
+          perk.detail = seatIdx >= 0 ? 'Bảo vệ câu kế tiếp người này ngồi ghế' : 'Bảo vệ câu đầu tiên sau khi lên ghế';
+          this.notice(`🛡️ ${shortName(perk.nickname, 18)} có 1 khiên bảo vệ — sẽ dùng cho câu kế tiếp!`, 'info');
+        }
+      }
+    }
+  }
+
+  /** Đưa người chơi vào vị trí ưu tiên đầu của hàng chờ (dưới những người ưu tiên trước đó) */
+  private executeSkipQueuePerk(perk: import('./types').GiftPerk, now: number): boolean {
+    const s = this.state;
+    const uid = perk.userId;
+    const p = this.players.get(uid);
+    // Đang ghế nóng hoặc được mời: giữ quyền, không tiêu hao vô ích
+    if (this.seatOf(uid) >= 0 || this.inviteOf(uid)) {
+      perk.state = 'unused';
+      perk.detail = 'Đã ở ghế nóng/đang được mời: giữ quyền cho lần sau';
+      this.giftPerks.save();
+      this.addLog({ kind: 'system', userId: uid, nickname: perk.nickname, message: 'Quà vào ngay ghế chờ: người gửi đang ở ghế/được mời -> giữ quyền chưa dùng' });
+      return true;
+    }
+    // Đã ở hàng chờ thường -> nâng sang ưu tiên (không đổi vị trí tương đối của người khác)
+    const qi = this.queueIndex(uid);
+    if (qi >= 0) {
+      // đã có ưu tiên trước đó thì giữ quyền (không tiêu hao)
+      if (s.queue[qi].priorityAt) {
+        perk.state = 'unused';
+        perk.detail = 'Đã có ưu tiên trước đó: giữ quyền';
+        this.giftPerks.save();
+        return true;
+      }
+      s.queue[qi].priorityAt = now;
+      perk.state = 'used';
+      perk.usedAt = now;
+      perk.detail = `Nâng lên ưu tiên tại vị trí ${qi + 1}`;
+      if (p && !p.autoRequeue) {
+        p.autoRequeue = true;
+        this.dirtyPlayers.add(uid);
+      }
+      this.giftPerks.save();
+      this.notice(`⚡ ${shortName(perk.nickname, 18)} được ưu tiên lên ghế chờ (vị trí ${qi + 1})!`, 'info');
+      this.addLog({ kind: 'system', userId: uid, nickname: perk.nickname, message: 'Quà vào ngay ghế chờ: nâng từ hàng thường sang ưu tiên' });
+      return true;
+    }
+    // Chưa ở hàng chờ: chèn ngay sau người ưu tiên cuối cùng (FIFO giữa người ưu tiên, trước người thường)
+    const insertAt = this.countPrioritizedInQueue();
+    if (insertAt >= this.rules.waitingSeats) {
+      // 10/10 ghế chờ đều ưu tiên: giữ quyền chờ, không tạo ghế thứ 11
+      perk.state = 'pending_queue_full';
+      perk.detail = 'Toàn bộ ghế chờ là người ưu tiên: giữ quyền, vào ngay khi có ghế trống';
+      this.notice(`⏳ ${shortName(perk.nickname, 18)} giữ quyền vào ngay ghế chờ — 10 ghế chờ hiện toàn người ưu tiên!`, 'info');
+      this.giftPerks.save();
+      this.addLog({ kind: 'system', userId: uid, nickname: perk.nickname, message: 'Quà vào ngay ghế chờ: 10 ghế chờ đều ưu tiên -> giữ quyền chờ' });
+      return true;
+    }
+    if (p && !p.autoRequeue) {
+      p.autoRequeue = true;
+      this.dirtyPlayers.add(uid);
+    }
+    s.queue.splice(insertAt, 0, { ticket: s.nextTicket++, userId: uid, priorityAt: now });
+    // nếu hàng chờ vượt 10: người thường cuối hàng (không ưu tiên) rơi về khán giả
+    this.trimRegularQueueOverflow();
+    perk.state = 'used';
+    perk.usedAt = now;
+    perk.detail = `Vào ghế chờ ưu tiên vị trí ${insertAt + 1}`;
+    this.giftPerks.save();
+    this.notice(`⚡ ${shortName(perk.nickname, 18)} vào ngay ghế chờ (vị trí ${insertAt + 1}) bằng quà!`, 'info');
+    this.addLog({ kind: 'system', userId: uid, nickname: perk.nickname, message: `Quà vào ngay ghế chờ: chèn ưu tiên vị trí ${insertAt + 1}` });
+    return true;
+  }
+
+  private isPrioritized(userId: string): boolean {
+    const e = this.state.queue.find((q) => q.userId === userId);
+    return Boolean(e?.priorityAt);
+  }
+
+  private countPrioritizedInQueue(): number {
+    let n = 0;
+    for (const q of this.state.queue) if (q.priorityAt) n++;
+    return n;
+  }
+
+  /**
+   * Hàng chờ chỉ giữ tối đa waitingSeats; khi vượt do chèn ưu tiên,
+   * người thường (không ưu tiên) CUỐI hàng rơi về khán giả; không đuổi người ưu tiên.
+   */
+  private trimRegularQueueOverflow() {
+    const s = this.state;
+    while (s.queue.length > this.rules.waitingSeats) {
+      let dropIdx = -1;
+      for (let i = s.queue.length - 1; i >= 0; i--) {
+        if (!s.queue[i].priorityAt) {
+          dropIdx = i;
+          break;
+        }
+      }
+      if (dropIdx < 0) break; // toàn ưu tiên: không tạo ghế thứ 11, giữ nguyên cho nhịp sau
+      const [dropped] = s.queue.splice(dropIdx, 1);
+      const p = this.players.get(dropped.userId);
+      if (p?.autoRequeue) {
+        p.autoRequeue = false;
+        this.dirtyPlayers.add(dropped.userId);
+      }
+      this.addLog({ kind: 'system', userId: dropped.userId, nickname: this.nameOf(dropped.userId), message: 'Rời ghế chờ (nhường chỗ cho người ưu tiên bằng quà), gõ CHỜ để xếp lại' });
+    }
+  }
+
+  /** Thực thi 1 lượt cướp ghế: chọn ghế trống trước; đủ người thì thay điểm/level thấp nhất */
+  private executeStealPerk(perk: import('./types').GiftPerk, now: number): boolean {
+    const s = this.state;
+    const uid = perk.userId;
+    // Đã ở ghế nóng: giữ quyền chưa dùng, không đá ai vô ích
+    if (this.seatOf(uid) >= 0) {
+      perk.state = 'unused';
+      perk.detail = 'Đã nhận quyền cướp ghế — bạn đang ở ghế nóng nên giữ quyền chưa dùng';
+      this.giftPerks.save();
+      this.notice(`👑 ${shortName(perk.nickname, 18)} có 1 quyền cướp ghế chưa dùng!`, 'info');
+      this.addLog({ kind: 'system', userId: uid, nickname: perk.nickname, message: 'Cướp ghế: người gửi đã ở ghế nóng -> giữ quyền chưa dùng' });
+      return true;
+    }
+    // Tìm ghế trống
+    let targetIdx = s.seats.findIndex((t) => !t);
+    if (targetIdx < 0) {
+      // đủ 5 ghế: thay người level thấp nhất; bằng level -> ngồi lâu nhất; cuối cùng -> số ghế lớn hơn
+      let worst = -1;
+      for (let i = 0; i < s.seats.length; i++) {
+        const t = s.seats[i];
+        if (!t) continue;
+        if (worst < 0) {
+          worst = i;
+          continue;
+        }
+        const w = s.seats[worst]!;
+        const worseThan = t.level < w.level || (t.level === w.level && t.startedAt < w.startedAt) || (t.level === w.level && t.startedAt === w.startedAt && t.seat > w.seat);
+        if (worseThan) worst = i;
+      }
+      targetIdx = worst;
+    }
+    if (targetIdx < 0) {
+      perk.state = 'pending_steal';
+      perk.detail = 'Chưa xác định được ghế thay: chờ ranh giới câu';
+      return false;
+    }
+
+    // Xóa người cướp khỏi hàng chờ / lời mời cũ để không nằm ở hai nơi
+    const qi = this.queueIndex(uid);
+    if (qi >= 0) s.queue.splice(qi, 1);
+    const inv = this.inviteOf(uid);
+    if (inv) s.invites = s.invites.filter((x) => x !== inv);
+
+    // Đưa người bị thay về khán giả: KHÔNG xóa điểm; autoRequeue giữ nguyên theo luật hiện có
+    const replaced = s.seats[targetIdx];
+    if (replaced) {
+      s.departed[targetIdx] = { userId: replaced.userId, nickname: this.nameOf(replaced.userId), reason: 'yield' };
+      this.addLog({ kind: 'system', userId: replaced.userId, nickname: this.nameOf(replaced.userId), message: `Bị thay ghế ${targetIdx + 1} bởi quyền cướp ghế (quà tặng): điểm đã kiếm được vẫn giữ, có thể đăng ký lại` });
+    }
+
+    const p = this.players.get(uid);
+    s.seats[targetIdx] = {
+      tenureId: `${uid}@${now}`,
+      userId: uid,
+      seat: targetIdx + 1,
+      level: 0,
+      startedAt: now,
+      recordAtStart: p?.bestLevelAll ?? 0,
+      recordBrokenAnnounced: false,
+    };
+    perk.state = 'used';
+    perk.usedAt = now;
+    perk.detail = `Cướp ghế ${targetIdx + 1}${replaced ? ` (thay ${this.nameOf(replaced.userId)})` : ' (ghế trống)'}`;
+    this.giftPerks.save();
+    this.notice(`👑 ${shortName(perk.nickname, 18)} cướp ghế nóng số ${targetIdx + 1} bằng quà!`, 'info');
+    this.addLog({ kind: 'system', userId: uid, nickname: perk.nickname, message: `Cướp ghế nóng số ${targetIdx + 1}: thành công, chơi bằng điểm/cấp của chính mình` });
+    return true;
+  }
+
+  /**
+   * Ở ranh giới câu (sau khi chấm & cập nhật điểm, trước khi bổ sung ghế từ hàng chờ):
+   * thực thi tối đa 1 lượt cướp ghế để người vừa lên chơi ít nhất một câu.
+   * Đồng thời đưa người có quyền skip_queue đang chờ (10/10 ưu tiên) vào ghế chờ nếu còn chỗ.
+   */
+  private settleGiftPerksAtBoundary(now: number): boolean {
+    let acted = false;
+    // 1. Cướp ghế: tối đa 1 lượt mỗi ranh giới
+    const steal = this.giftPerks.pendingSteals()[0];
+    if (steal) {
+      acted = this.executeStealPerk(steal, now) || acted;
+    }
+    // 2. Người đang chờ vì 10/10 ưu tiên: đưa vào khi ghế chờ còn chỗ cho người ưu tiên
+    for (const perk of this.giftPerks.data.perks) {
+      if (perk.action === 'skip_queue' && perk.state === 'pending_queue_full') {
+        if (this.executeSkipQueuePerk(perk, now)) acted = true;
+      }
+    }
+    return acted;
+  }
+
+  /** Bảo vệ đáp án khi chấm: trả về perk nếu người này được bảo vệ cho câu runId */
+  private protectionForSeat(userId: string, runId: string): import('./types').GiftPerk | null {
+    return this.giftPerks.protectionFor(userId, runId);
   }
   private flushGifts() {
     const now = this.now();
@@ -990,6 +1263,11 @@ export class GameEngine {
     }
     this.refillWaitingQueue();
     this.rotateAudience();
+    // Quyền quà: thực thi cướp ghế đến hạn TRƯỚC khi mời người từ hàng chờ (đúng thứ tự chuyển câu)
+    if (this.settleGiftPerksAtBoundary(this.now())) {
+      this.refillWaitingQueue();
+      this.rotateAudience();
+    }
     this.startWave(1);
   }
 
@@ -1222,6 +1500,8 @@ export class GameEngine {
       const ok = ans?.choice === q.correct;
       const levelBefore = t.level;
       gradedHot.add(t.userId);
+      // Quyền bảo vệ (quà): chỉ bảo vệ trước kết quả câu, chỉ dùng khi thật sự cần giữ ghế
+      const shield = ok ? null : this.protectionForSeat(t.userId, cur.runId);
       if (ok) {
         t.level += 1;
         award(t.userId);
@@ -1239,6 +1519,11 @@ export class GameEngine {
         if (t.level > p.bestLevelAll) p.bestLevelAll = t.level;
         this.dirtyPlayers.add(p.userId);
         if (tags.length) honorEntries.push({ userId: p.userId, nickname: p.nickname, avatar: p.avatar, level: t.level, template: templateOf(p.userId), tags });
+      } else if (shield) {
+        // Được bảo vệ: không trừ điểm, không rớt ghế, không cộng điểm/cấp, không tiêu hao người tự xếp lại
+        shield.detail = `run:${cur.runId}:shielded`;
+        this.notice(`🛡️ ${shortName(p.nickname, 18)} được khiên bảo vệ câu ${cur.code} — giữ ghế dù sai/không đáp án`, 'info');
+        this.addLog({ kind: 'system', userId: t.userId, nickname: p.nickname, message: `Khiên bảo vệ giữ ghế ${idx + 1} tại câu ${cur.code} (${ans ? 'sai' : 'không trả lời'})` });
       } else {
         this.vacateSeat(idx, ans ? 'wrong' : 'no_answer');
         if (ans) {
@@ -1248,7 +1533,8 @@ export class GameEngine {
           this.dirtyPlayers.add(p.userId);
         }
       }
-      seatResults.push({ seat: idx + 1, userId: p.userId, nickname: p.nickname, answered: !!ans, correct: ok, levelAfter: ok ? t.level : levelBefore, stays: ok });
+      const staysNow = ok || Boolean(shield);
+      seatResults.push({ seat: idx + 1, userId: p.userId, nickname: p.nickname, answered: !!ans, correct: ok, levelAfter: ok ? t.level : levelBefore, stays: staysNow });
       rows.push({ runId: cur.runId, userId: p.userId, role: 'hot', seat: idx + 1, choice: ans?.choice ?? null, correct: ok, points: ok ? P : 0, levelBefore, levelAfter: ok ? t.level : levelBefore });
     });
 
@@ -1616,6 +1902,55 @@ export class GameEngine {
   }
 
   // ======================================================================
+  // Quà tặng TikTok: quản trị cấu hình + dữ liệu xem
+  // ======================================================================
+
+  upsertGiftConfig(actor: string, body: unknown): CommandOutcome {
+    const b = (body ?? {}) as Record<string, unknown>;
+    const res = this.giftPerks.upsertConfig({
+      giftId: String(b.giftId ?? ''),
+      name: String(b.name ?? ''),
+      image: b.image ? String(b.image) : undefined,
+      action: (['steal_seat', 'skip_queue', 'protect_answer'].includes(String(b.action)) ? b.action : '') as never,
+      unitsPerPerk: Number(b.unitsPerPerk ?? 1),
+      enabled: Boolean(b.enabled),
+      description: String(b.description ?? ''),
+    });
+    if (res.accepted) this.audit(actor, 'Lưu cấu hình quà', res.reason);
+    return res;
+  }
+
+  removeGiftConfig(actor: string, giftId: string): CommandOutcome {
+    const res = this.giftPerks.removeConfig(String(giftId || ''));
+    if (res.accepted) this.audit(actor, 'Xóa cấu hình quà', res.reason);
+    return res;
+  }
+
+  clearGiftPerksOf(actor: string, userId: string): CommandOutcome {
+    const n = this.giftPerks.clearUser(String(userId || ''));
+    this.audit(actor, 'Xóa quyền quà của người chơi', `${userId}: ${n} quyền`);
+    return { accepted: true, reason: `Đã xóa ${n} quyền của ${userId}` };
+  }
+
+  /** Sự kiện quà gần nhất, đã lọc thông tin nhạy cảm để phục vụ kiểm tra dữ liệu */
+  recentGiftsView() {
+    return this.giftPerks.data.recent.map((g) => ({
+      at: g.at,
+      eventId: g.eventId,
+      userId: g.userId,
+      nickname: g.nickname,
+      avatar: g.avatar,
+      giftId: g.giftId,
+      giftName: g.giftName,
+      image: g.image,
+      count: g.count,
+      groupId: g.groupId,
+      configured: g.configured,
+      note: g.note,
+    }));
+  }
+
+  // ======================================================================
   // Khôi phục sau khởi động lại (§14)
   // ======================================================================
   private recover() {
@@ -1812,6 +2147,18 @@ export class GameEngine {
       log: this.log.slice(-300),
       display: this.display,
       gradeCount: this.gradeCount,
+      gifts: {
+        config: this.giftPerks.data.config,
+        perks: this.giftPerks.data.perks.slice(-200).map((p) => ({
+          ...p,
+          // vị trí hiện tại của người giữ quyền, để quản trị thấy rõ
+          seat: this.seatOf(p.userId) + 1 || null,
+          inQueue: this.queueIndex(p.userId) + 1 || null,
+        })),
+        recent: this.recentGiftsView(),
+        progress: this.giftPerks.data.progress,
+        queuePriorities: s.queue.map((q, i) => ({ pos: i + 1, userId: q.userId, priority: Boolean(q.priorityAt), at: q.priorityAt ?? null })),
+      },
     };
   }
 }

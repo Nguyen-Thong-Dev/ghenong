@@ -169,17 +169,27 @@ export class TikTokBridge {
     });
 
     // Chống tính lặp chuỗi quà combo (§13)
+    // Khóa theo groupId (phân biệt 2 combo khác nhau), dự phòng userId+giftId khi không có groupId.
     const streakCounts = new Map<string, number>();
     conn.on(WebcastEvent.GIFT, (data: any) => {
       const userId = stableUserIdOf(data);
-      const giftId = data?.giftId || 0;
-      const key = `${userId}_${giftId}`;
-      const total = data?.repeatCount || 1;
+      // ID quà PHẢI giữ dạng chuỗi (TikTok ID có thể vượt giới hạn số an toàn)
+      const giftId = String(data?.giftId ?? data?.gift?.id ?? data?.giftDetails?.giftId ?? '').trim();
+      const groupId = String(data?.groupId ?? '').trim();
+      const key = groupId || `${userId}_${giftId}`;
+      // comboCount là tổng tích lũy (1→2→3); repeatCount là số lần trong lần gửi này
+      const total = Number(data?.comboCount ?? data?.repeatCount ?? 1) || 1;
       const delta = total - (streakCounts.get(key) || 0);
-      const isStreakable = (data?.gift?.type ?? data?.giftDetails?.giftType ?? data?.giftType) === 1;
-      if (isStreakable && !data?.repeatEnd) streakCounts.set(key, total);
+      if (!data?.repeatEnd) streakCounts.set(key, total);
       else streakCounts.delete(key);
       if (delta <= 0) return;
+
+      const giftObj = data?.gift ?? {};
+      const image =
+        data?.extendedGiftInfo?.image?.urlList?.[0] ||
+        giftObj?.image?.urlList?.[0] ||
+        giftObj?.icon?.urlList?.[0] ||
+        '';
 
       this.onEvent({
         source: 'tiktok',
@@ -189,9 +199,12 @@ export class TikTokBridge {
         nickname: nickOf(data),
         avatar: avatarOf(data),
         gift: {
-          name: data?.gift?.name || data?.giftDetails?.giftName || data?.giftName || 'Quà',
+          name: giftObj?.name || data?.giftDetails?.giftName || data?.giftName || 'Quà',
           count: delta,
-          diamonds: data?.gift?.diamondCount || data?.diamondCount || 1,
+          diamonds: Number(giftObj?.diamondCount ?? data?.diamondCount ?? 1) || 1,
+          giftId,
+          groupId: groupId || undefined,
+          image: image || undefined,
         },
         receivedAt: Date.now(),
       });

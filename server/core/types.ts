@@ -76,6 +76,8 @@ export interface Invite {
 export interface QueueEntry {
   ticket: number;
   userId: string;
+  /** thời điểm nhận quyền ưu tiên bằng quà (có giá trị = thuộc nhóm ưu tiên, FIFO theo thời điểm này) */
+  priorityAt?: number;
 }
 
 export interface SessionScore {
@@ -202,9 +204,73 @@ export interface InboundEvent {
   nickname?: string;
   avatar?: string;
   text?: string;
-  gift?: { name: string; count: number; diamonds: number };
+  gift?: {
+    name: string;
+    count: number;
+    diamonds: number;
+    /** ID quà TikTok (chuỗi ổn định). Thiếu -> không thể gán quyền lợi theo cấu hình */
+    giftId?: string;
+    /** mã nhóm combo: phân biệt hai combo khác nhau cùng người/cùng quà */
+    groupId?: string;
+    /** ảnh quà (url) nếu có */
+    image?: string;
+  };
   /** giờ máy chủ nhận (ms) — gán bởi máy chủ, không lấy từ máy người xem (§4, §7) */
   receivedAt: number;
+}
+
+/** Loại quyền lợi gán cho quà tặng */
+export type GiftAction = 'steal_seat' | 'skip_queue' | 'protect_answer';
+
+/** Cấu hình quà -> hành động (lưu meta 'gift_config', bền vững qua khởi động lại) */
+export interface GiftConfigEntry {
+  giftId: string;
+  name: string;
+  image?: string;
+  action: GiftAction;
+  /** số đơn vị quà cần cho 1 lượt quyền lợi, mặc định 1 */
+  unitsPerPerk: number;
+  enabled: boolean;
+  /** mô tả quyền lợi hiển thị công khai trên live */
+  description: string;
+  updatedAt: number;
+}
+
+/** Trạng thái một quyền lợi */
+export type GiftPerkState = 'unused' | 'pending_steal' | 'pending_queue_full' | 'used' | 'void';
+
+/** Quyền lợi đã cấp cho người gửi quà */
+export interface GiftPerk {
+  id: string;
+  userId: string;
+  nickname: string;
+  avatar: string;
+  giftId: string;
+  giftName: string;
+  action: GiftAction;
+  state: GiftPerkState;
+  createdAt: number;
+  usedAt?: number;
+  /** mô tả kết quả thực thi / lý do giữ */
+  detail?: string;
+}
+
+/** Một món quà vừa nhận (cho bảng "Quà vừa nhận" và kiểm tra dữ liệu sự kiện) */
+export interface RecentGift {
+  at: number;
+  eventId: string;
+  userId: string;
+  nickname: string;
+  avatar: string;
+  giftId: string;
+  giftName: string;
+  image?: string;
+  count: number;
+  groupId?: string;
+  /** đã gán quyền lợi theo cấu hình hay chỉ cảm ơn */
+  configured: boolean;
+  /** kết quả xử lý (đã cấp / chờ / lỗi dữ liệu) */
+  note: string;
 }
 
 export interface CommandOutcome {

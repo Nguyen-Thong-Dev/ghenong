@@ -68,6 +68,49 @@ interface AdminPayload {
   playerCount: number;
   questions: QuestionItem[];
   remainingQuestions: number;
+  gifts: {
+    config: {
+      giftId: string;
+      name: string;
+      image?: string;
+      action: 'steal_seat' | 'skip_queue' | 'protect_answer';
+      unitsPerPerk: number;
+      enabled: boolean;
+      description: string;
+      updatedAt: number;
+    }[];
+    perks: {
+      id: string;
+      userId: string;
+      nickname: string;
+      avatar: string;
+      giftId: string;
+      giftName: string;
+      action: 'steal_seat' | 'skip_queue' | 'protect_answer';
+      state: string;
+      createdAt: number;
+      usedAt?: number;
+      detail?: string;
+      seat: number | null;
+      inQueue: number | null;
+    }[];
+    recent: {
+      at: number;
+      eventId: string;
+      userId: string;
+      nickname: string;
+      avatar: string;
+      giftId: string;
+      giftName: string;
+      image?: string;
+      count: number;
+      groupId?: string;
+      configured: boolean;
+      note: string;
+    }[];
+    progress: Record<string, number>;
+    queuePriorities: { pos: number; userId: string; priority: boolean; at: number | null }[];
+  };
   log: {
     id: number;
     at: number;

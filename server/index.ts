@@ -296,6 +296,11 @@ app.post('/api/admin/player/lock', requireAdmin, (req, res) =>
 app.post('/api/admin/config/rules', requireAdmin, (req, res) => res.json(engine.setRules('admin', req.body || {})));
 app.post('/api/admin/config/display', requireAdmin, (req, res) => res.json(engine.setDisplay('admin', req.body || {})));
 
+// Quà tặng TikTok: cấu hình quà -> hành động (chỉ quản trị cục bộ, người xem không thể sửa)
+app.post('/api/admin/gifts/config', requireAdmin, (req, res) => res.json(engine.upsertGiftConfig('admin', req.body)));
+app.post('/api/admin/gifts/config/remove', requireAdmin, (req, res) => res.json(engine.removeGiftConfig('admin', String(req.body?.giftId || ''))));
+app.post('/api/admin/gifts/perks/clear', requireAdmin, (req, res) => res.json(engine.clearGiftPerksOf('admin', String(req.body?.userId || ''))));
+
 // Sao lưu & xuất nhật ký
 app.post('/api/admin/backup', requireAdmin, (_req, res) => {
   try {
