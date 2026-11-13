@@ -1091,14 +1091,32 @@ export class GameEngine {
       return this.commit();
     }
     const used = new Set(s.usedQuestionIds);
-    const pick = pickQuestion(this.questions, used, s.plan, s.recentTopics, s.lastHard, this.rng);
+    let pick = pickQuestion(this.questions, used, s.plan, s.recentTopics, s.lastHard, this.rng);
     if (!pick) {
-      s.noQuestionsWarning = true;
-      s.current = null;
-      this.setPhase('NO_QUESTIONS', null);
-      this.addLog({ kind: 'error', message: 'Hết câu hỏi đã duyệt trong phiên: chuyển màn hình nghỉ, không lặp câu cũ' });
-      this.say('Đã hết câu hỏi của phiên này. Cảm ơn các bạn, chúng ta nghỉ một chút nhé!', { category: 'huongDan', durationMs: 4000 });
-      return this.commit();
+      // Chạy liên tục: hết câu chưa dùng trong phiên -> mở vòng mới thay vì treo màn hình nghỉ.
+      // Giữ lại tối đa 20 câu vừa chơi nhất để không bị lặp sát nhau; các câu cũ quay lại ngân hàng.
+      const keepRecent = s.usedQuestionIds.slice(-20);
+      const reuseCount = s.usedQuestionIds.length - keepRecent.length;
+      s.usedQuestionIds = keepRecent;
+      s.plan = []; // bắt đầu lại khối 3 dễ : 5 vừa : 2 khó từ đầu vòng
+      this.sys(`Hết câu mới trong phiên: mở vòng mới, quay lại ${(this.questions.filter((q) => q.status === 'approved').length - keepRecent.length)} câu đã chơi trước đó (giữ ${keepRecent.length} câu vừa chơi).`);
+      this.addLog({ kind: 'system', message: `Vòng mới: ${reuseCount} câu quay lại ngân hàng, giữ ${keepRecent.length} câu vừa chơi để tránh lặp sát.` });
+      pick = pickQuestion(this.questions, new Set(s.usedQuestionIds), s.plan, s.recentTopics, s.lastHard, this.rng);
+      if (!pick) {
+        // Trường hợp cực hạn: toàn bộ ngân hàng đã chơi vừa xong (hoặc < 1 câu còn lại).
+        // Vẫn không dừng: xóa hẳn lịch sử câu của phiên để tiếp tục lặp toàn bộ ngân hàng.
+        s.usedQuestionIds = [];
+        s.plan = [];
+        pick = pickQuestion(this.questions, new Set(s.usedQuestionIds), s.plan, s.recentTopics, s.lastHard, this.rng);
+        if (!pick) {
+          s.noQuestionsWarning = true;
+          s.current = null;
+          this.setPhase('NO_QUESTIONS', null);
+          this.addLog({ kind: 'error', message: 'Không còn câu nào đã duyệt trong ngân hàng: chuyển màn hình nghỉ' });
+          this.say('Chưa có câu hỏi nào trong ngân hàng. Cảm ơn các bạn!', { category: 'huongDan', durationMs: 4000 });
+          return this.commit();
+        }
+      }
     }
     if (pick.note) this.sys(`Chọn câu: ${pick.note}`);
     const q = pick.question;

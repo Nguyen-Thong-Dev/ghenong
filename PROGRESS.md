@@ -23,12 +23,12 @@ Cập nhật: `09/11/2026` — Phiên bản luật: `v1.0`
 ## 2. Những phần đang là hình tạm hoặc chưa thực hiện trong giai đoạn này
 
 - **Đồ họa nhân vật & sân khấu:** Đang sử dụng bộ nhân vật vector/SVG 2.5D tự tạo (`web/Character25D.tsx`) và nền sân khấu vector/CSS 2.5D làm **hình tạm rõ nét cho bản đầu** (hoàn toàn không dùng ảnh của repo `lop-hoc-chu`). Khi có bộ sprite nhân vật và nền 2.5D hoàn thiện của họa sĩ, chỉ cần thay vào `Character25D.tsx` và `StageView.tsx`.
-- **Ngân hàng câu hỏi vận hành dài giờ:** Bản đầu có sẵn **20 câu hỏi trắc nghiệm tiếng Việt mẫu** để kiểm thử đầy đủ vòng đời và trường hợp cạn ngân hàng câu hỏi (`T17`). Để chạy phiên live 6 giờ thực tế (ước tính 300–450 câu), cần nhập đủ tối thiểu 500 câu đã duyệt theo mục 12 của bộ luật.
+- **Ngân hàng câu hỏi vận hành dài giờ:** Có **320 câu hỏi đã duyệt** trong ngân hàng SQLite (`server/data/runtime/ghenong.sqlite`): **300 câu GN001–GN300 đa chủ đề, đa độ khó** (12 chủ đề: Đời sống, Ẩm thực, Tiếng Việt, Tuổi thơ, Thiên nhiên, Khoa học, Địa lý, Công nghệ, Suy luận, Tiếng Anh, Thể thao, Âm nhạc) + 20 câu mẫu cũ `q01..q20`. Khi hết câu trong phiên, engine tự mở vòng mới, giữ 20 câu vừa chơi để tránh lặp sát, không treo màn hình nghỉ (`T24`, `T25`).
 - **Kiểm thử tải 6 giờ liên tục trên VPS (`T19`, `T20`) và phòng TikTok LIVE thật:** Chưa thực hiện trong giai đoạn local này; cần thực hiện khi triển khai lên VPS và nối phòng live thật.
 
 ## 3. Bước tiếp theo
 
-1. Chuẩn bị và duyệt bộ 500+ câu hỏi trắc nghiệm tiếng Việt đưa vào ngân hàng câu hỏi.
+1. ✅ Nhập ngân hàng câu hỏi: 300 câu GN đã duyệt (có thể tiếp tục bổ sung thêm để đạt mục tiêu 500+ câu cho phiên 6 giờ).
 2. Thay bộ hình tạm SVG 2.5D bằng bộ tranh nhân vật (MC, thí sinh ghế nóng, khán giả) hoàn thiện của dự án.
 3. Thử nghiệm kết nối với một buổi phát TikTok LIVE thật (chế độ thử nghiệm) để đo độ trễ bình luận và tinh chỉnh vùng an toàn (Safe Area) trên màn hình điện thoại.
 4. Đưa lên máy chủ VPS, cấu hình `DISABLE_SIM=1` và chạy bài kiểm thử vận hành liên tục (`T19`, `T20`).

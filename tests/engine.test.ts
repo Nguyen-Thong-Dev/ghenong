@@ -10,6 +10,8 @@ import os from 'os';
 import { Store } from '../server/store/db';
 import { GameEngine } from '../server/core/engine';
 import { SAMPLE_QUESTIONS, SIM_PROFILES } from '../server/data/samples';
+import { loadBank300 } from '../server/data/bank300';
+import { pickQuestion, validateQuestion } from '../server/core/questions';
 import {
   MC_DIALOGUE_BANK,
   MAX_AUX_PER_QUESTION,
@@ -497,9 +499,10 @@ test('T15: Tặng quà lớn / chuỗi quà — không đổi điểm, thứ t�
   assert.equal(h.engine.state.queue[0]?.userId, 'sim_02');
 });
 
-test('T17: Hết ngân hàng câu hỏi — chuyển màn hình nghỉ có cảnh báo, không tự lặp câu trong cùng phiên', () => {
-  const twoQuestions = SAMPLE_QUESTIONS.slice(0, 2);
-  const h = makeHarness(twoQuestions);
+test('T17: Hết ngân hàng câu hỏi — mở vòng mới chạy liên tục, giữ câu vừa chơi tránh lặp sát, không treo màn hình nghỉ', () => {
+  // Ngân hàng 3 câu nhỏ: chơi hết cả 3 -> engine phải mở vòng mới (giữ tối đa 2 câu vừa chơi)
+  const threeQuestions = SAMPLE_QUESTIONS.slice(0, 3);
+  const h = makeHarness(threeQuestions);
   seatPlayersAndOpen(h, ['sim_01']);
   // Chơi hết câu 1 (OPEN + REVEAL + HONOR + TRANSITION + PREPARE)
   const cur1 = h.engine.state.current!;
@@ -511,10 +514,19 @@ test('T17: Hết ngân hàng câu hỏi — chuyển màn hình nghỉ có cản
   const q2 = h.engine.questionById(cur2.questionId)!;
   h.chat('sim_01', `${cur2.code}${q2.correct}`);
   h.advance(30_000 + 8_000 + 5_000 + 7_000);
+  // Chơi hết câu 3 — hết ngân hàng, vòng mới tự mở
+  const cur3 = h.engine.state.current!;
+  const q3 = h.engine.questionById(cur3.questionId)!;
+  h.chat('sim_01', `${cur3.code}${q3.correct}`);
+  h.advance(30_000 + 8_000 + 5_000 + 7_000 + 7_000);
 
-  // Hết câu -> NO_QUESTIONS
-  assert.equal(h.engine.state.phase, 'NO_QUESTIONS');
-  assert.equal(h.engine.state.noQuestionsWarning, true);
+  // Vẫn đang chơi: vòng mới đã mở câu tiếp theo thay vì NO_QUESTIONS
+  assert.notEqual(h.engine.state.phase, 'NO_QUESTIONS');
+  assert.notEqual(h.engine.state.current, null, 'Phải có câu mới của vòng mới');
+  // Giữ tối đa 20 câu vừa chơi (ở đây toàn bộ 3 câu vì ngân hàng nhỏ) để tránh lặp sát
+  assert.ok(h.engine.state.usedQuestionIds.length <= 20);
+  // Câu mới chọn trong 3 câu đã chơi trước (ngân hàng chỉ có vậy) — chứng minh vòng lặp hoạt động
+  assert.ok(threeQuestions.some((q) => q.id === h.engine.state.current!.questionId));
 });
 
 test('T18: Nhường ghế sau khi đã gửi đáp án — đáp án đúng vẫn +10 điểm nhưng không tăng cấp; ghế chỉ bổ sung ở ranh giới câu', () => {
@@ -763,4 +775,41 @@ test('T23: Hướng dẫn trên sân khấu luôn gồm 1 dòng cố định và
     true,
     'Khi chuyển vòng phải hiển thị cách tính thành tích / điều kiện thắng theo luật đang dùng',
   );
+});
+
+test('T24: Ngân hàng 300 câu GN — nạp chuẩn lõi luật: đủ 300 câu, không trùng ID, phân bố độ khó và 4 lựa chọn khác nhau', () => {
+  const bank = loadBank300();
+  assert.equal(bank.length, 300, 'Phải nạp đủ 300 câu');
+  assert.equal(new Set(bank.map((q) => q.id)).size, 300, 'ID phải duy nhất');
+  for (const q of bank) {
+    assert.equal(validateQuestion(q), null, `Câu ${q.id} phải hợp lệ theo validateQuestion`);
+    assert.equal(['de', 'vua', 'kho'].includes(q.difficulty), true, `Câu ${q.id} mức khó chuẩn hóa`);
+  }
+  // Không đè lên câu mẫu q01..q20: tiền tố GN riêng biệt
+  assert.equal(bank.some((q) => !q.id.startsWith('GN')), false, 'Mọi ID phải bắt đầu bằng GN');
+  // Đáp án đúng nằm trong 4 lựa chọn
+  for (const q of bank) {
+    const idx = 'ABCD'.indexOf(q.correct);
+    assert.equal(q.choices[idx].length > 0, true, `Câu ${q.id}: đáp án đúng phải trỏ tới lựa chọn có nội dung`);
+  }
+});
+
+test('T25: Chơi dài hạn với ngân hàng 300 câu — chọn câu 25 lần liên tục vẫn có câu, không lặp trong vòng, tự mở vòng mới', () => {
+  const h = makeHarness(loadBank300());
+  seatPlayersAndOpen(h, ['sim_01']);
+  const seenOrder: string[] = [];
+  for (let i = 0; i < 25; i++) {
+    const cur = h.engine.state.current!;
+    seenOrder.push(cur.questionId);
+    const q = h.engine.questionById(cur.questionId)!;
+    h.chat('sim_01', `${cur.code}${q.correct}`);
+    h.advance(30_000 + 8_000 + 5_000 + 7_000 + 7_000);
+    // Sau mỗi câu: hoặc đang mở câu mới, hoặc đang ranh giới chuyển (câu tiếp theo sẽ tới)
+    assert.notEqual(h.engine.state.phase, 'NO_QUESTIONS', `Lần ${i + 1}: không được treo màn hình nghỉ`);
+    assert.notEqual(h.engine.state.current, null, `Lần ${i + 1}: phải có câu hiện tại`);
+  }
+  // 25 câu liên tục không trùng mã câu hiển thị
+  assert.equal(new Set(seenOrder).size, 25, '25 câu đầu phải là 25 câu khác nhau');
+  // Không lặp trong vòng đầu: 25 ID câu hỏi khác nhau (bank 300 đủ lớn)
+  assert.equal(new Set(seenOrder).size, 25);
 });

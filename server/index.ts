@@ -14,6 +14,7 @@ import { fileURLToPath } from 'url';
 import { Store } from './store/db';
 import { GameEngine } from './core/engine';
 import { SAMPLE_QUESTIONS, SIM_PROFILES } from './data/samples';
+import { loadBank300 } from './data/bank300';
 import { TikTokBridge } from './tiktok/connector';
 import { synthesizeSpeech } from './tts/service';
 import { AutoSimController } from './sim/autoBot';
@@ -42,10 +43,22 @@ if (!ADMIN_TOKEN) {
   }
 }
 
-// Khởi tạo SQLite & nạp câu hỏi mẫu nếu ngân hàng trống
+// Khởi tạo SQLite & nạp ngân hàng câu hỏi nếu trống:
+// - 300 câu bộ khởi đầu (GN001..GN300) đa chủ đề, đa độ khó.
+// - Nếu trống cả bộ GN thì nạp; giữ nguyên 20 câu mẫu q01..q20 nếu đã có sẵn.
 const store = new Store(DB_FILE);
 if (store.loadQuestions().length === 0) {
+  for (const q of loadBank300()) store.upsertQuestion(q);
   for (const q of SAMPLE_QUESTIONS) store.upsertQuestion(q);
+  console.log(`Đã nạp ngân hàng câu hỏi khởi đầu: ${loadBank300().length} câu GN + ${SAMPLE_QUESTIONS.length} câu mẫu.`);
+} else {
+  // Bổ sung bộ 300 câu nếu thiếu (VD: DB cũ chỉ có câu mẫu q01..q20) — không ghi đè câu đã chỉnh sửa
+  const existing = new Set(store.loadQuestions().map((q) => q.id));
+  const missing = loadBank300().filter((q) => !existing.has(q.id));
+  if (missing.length > 0) {
+    for (const q of missing) store.upsertQuestion(q);
+    console.log(`Đã bổ sung ${missing.length} câu từ ngân hàng 300 câu (GN).`);
+  }
 }
 
 const engine = new GameEngine({ store });
