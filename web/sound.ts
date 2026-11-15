@@ -41,12 +41,29 @@ const DUCK_FACTOR = 0.3162; // -10 dB = 10^(-10/20)
 
 type SfxKind = 'countdown' | 'correct' | 'wrong' | 'seat' | 'honor';
 type BgmType = 'lobby' | 'thinking' | 'off';
+type AudioFileKey = 'lobby' | 'thinking' | 'countdown' | 'correct' | 'honor';
+
+const AUDIO_FILE_URLS: Record<AudioFileKey, string> = {
+  lobby: '/audio/giao-luu.mp3',
+  thinking: '/audio/suy-nghi.mp3',
+  countdown: '/audio/dem-nguoc.mp3',
+  correct: '/audio/tra-loi-dung.mp3',
+  honor: '/audio/vinh-danh.mp3',
+};
 
 class StageAudioManager {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private bgmGain: GainNode | null = null;
   private sfxGain: GainNode | null = null;
+
+  // Bộ đệm MP3 đã giải mã và các nguồn phát đang chạy
+  private audioBuffers: Partial<Record<AudioFileKey, AudioBuffer>> = {};
+  private loadingBuffers: Partial<Record<AudioFileKey, Promise<AudioBuffer | null>>> = {};
+  private activeBgmSource: AudioBufferSourceNode | null = null;
+  private activeSfxSources: Set<AudioBufferSourceNode> = new Set();
+  private activeCountdownSource: AudioBufferSourceNode | null = null;
+  private bgmRunToken = 0;
 
   private settings: AudioSettings;
   private subscribers: Set<(s: AudioSettings) => void> = new Set();
@@ -238,6 +255,7 @@ class StageAudioManager {
         this.sfxGain.connect(this.masterGain);
 
         this.updateGains();
+        this.preloadAudioFiles();
       }
       if (this.ctx.state === 'suspended') {
         void this.ctx.resume().catch(() => {});
@@ -246,6 +264,32 @@ class StageAudioManager {
     } catch {
       return null;
     }
+  }
+
+  /** Tải trước và giải mã 5 file MP3 (Giao lưu, Suy nghĩ, Đếm ngược, Trả lời đúng, Vinh danh) */
+  private preloadAudioFiles() {
+    for (const key of Object.keys(AUDIO_FILE_URLS) as AudioFileKey[]) {
+      void this.loadAudioBuffer(key);
+    }
+  }
+
+  private loadAudioBuffer(key: AudioFileKey): Promise<AudioBuffer | null> {
+    if (this.audioBuffers[key]) return Promise.resolve(this.audioBuffers[key]!);
+    if (this.loadingBuffers[key]) return this.loadingBuffers[key]!;
+    const ctx = this.getContext();
+    if (!ctx || typeof fetch === 'undefined') return Promise.resolve(null);
+
+    const promise = fetch(AUDIO_FILE_URLS[key])
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((ab) => ctx.decodeAudioData(ab))
+      .then((buf) => {
+        this.audioBuffers[key] = buf;
+        return buf;
+      })
+      .catch(() => null);
+
+    this.loadingBuffers[key] = promise;
+    return promise;
   }
 
   async resumeContext(): Promise<void> {
@@ -336,6 +380,10 @@ class StageAudioManager {
     // Ghi nhớ lại để khôi phục sau khi nghe thử (preview) kết thúc
     this.lastGameStateArgs = [phase, remainSec, isMcActive];
 
+    if (phase !== 'OPEN') {
+      this.stopCountdownSource();
+    }
+
     if (isMcActive) {
       this.setMcSpeaking(true);
     } else {
@@ -380,11 +428,39 @@ class StageAudioManager {
     if (track === 'off') return;
 
     const ctx = this.getContext();
-    if (!ctx) return;
+    if (!ctx || !this.bgmGain) return;
 
-    // Lookahead scheduler: đặt lịch nốt trước 120ms theo đồng hồ AudioContext.
-    // Nhờ vậy nhạc không vỡ/yếu khi trình duyệt giảm tần suất setInterval ở tab nền,
-    // và mọi nốt đều đúng nhịp tuyệt đối dù timer bị trễ.
+    const runToken = ++this.bgmRunToken;
+    const startBufferLoop = (buf: AudioBuffer) => {
+      if (this.bgmRunToken !== runToken || this.currentBgmTrack !== track || !this.bgmGain) return;
+      try {
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.loop = true;
+        src.connect(this.bgmGain);
+        src.start(0);
+        this.activeBgmSource = src;
+      } catch {}
+    };
+
+    const cached = this.audioBuffers[track];
+    if (cached) {
+      startBufferLoop(cached);
+      return;
+    }
+
+    void this.loadAudioBuffer(track).then((buf) => {
+      if (this.bgmRunToken !== runToken || this.currentBgmTrack !== track) return;
+      if (buf) {
+        startBufferLoop(buf);
+      } else {
+        this.startSynthesizedBgmFallback(track, ctx);
+      }
+    });
+  }
+
+  /** Dự phòng tổng hợp bằng Web Audio nếu file MP3 nhạc nền bị thiếu hoặc lỗi tải */
+  private startSynthesizedBgmFallback(track: 'lobby' | 'thinking', ctx: AudioContext) {
     const scheduleAheadSec = 0.12;
     const tickMs = 40;
 
@@ -393,11 +469,9 @@ class StageAudioManager {
       this.bgmLoopTimer = setInterval(() => {
         if (this.currentBgmTrack === 'off') return;
         if (!this.settings.bgmEnabled || !this.speakerAllowed) {
-          // Tạm dừng: đẩy mốc lịch về hiện tại để khi bật lại không xả dồn hàng loạt nốt trong quá khứ
           this.bgmNextNoteTime = ctx.currentTime;
           return;
         }
-        // Nếu timer bị trễ quá lâu (tab nền / máy ngủ): đồng bộ lại, bỏ qua các bước đã lỡ
         if (this.bgmNextNoteTime < ctx.currentTime - 0.3) {
           this.bgmNextNoteTime = ctx.currentTime + 0.02;
         }
@@ -411,12 +485,10 @@ class StageAudioManager {
     };
 
     if (track === 'lobby') {
-      // Tempo: 108 BPM (16th note ~138.8ms)
       const stepDur = 60 / 108 / 4;
       this.bgmStepDur = stepDur;
       schedulerFor(stepDur, (step, t) => this.composeLobbyStep(step, t));
     } else if (track === 'thinking') {
-      // Tempo: 75 BPM (1 beat = 800ms)
       const stepDur = 60 / 75;
       this.bgmStepDur = stepDur;
       schedulerFor(stepDur, (step, t) => this.composeThinkingStep(step, t));
@@ -424,11 +496,19 @@ class StageAudioManager {
   }
 
   private stopBgmLoop() {
+    this.bgmRunToken++;
+    if (this.activeBgmSource) {
+      try {
+        this.activeBgmSource.stop();
+        this.activeBgmSource.disconnect();
+      } catch {}
+      this.activeBgmSource = null;
+    }
     if (this.bgmLoopTimer) {
       clearInterval(this.bgmLoopTimer);
       this.bgmLoopTimer = null;
     }
-    // Dứt điểm các nốt đã đặt lịch để không văng tiếng le sau khi đổi/tắt bài
+    // Dứt điểm các nốt đã đặt lịch để không văng tiếng lẻ sau khi đổi/tắt bài
     const ctx = this.ctx;
     if (ctx) {
       for (const osc of this.activeBgmOscs) {
@@ -622,31 +702,113 @@ class StageAudioManager {
     }
   }
 
-  /** Đếm ngược 10..1s */
-  private playCountdownSfx(remainSec: number) {
-    if (remainSec < 1 || remainSec > 10) return;
-    if (remainSec <= 1) {
-      // 1s cuối: âm báo chốt sổ cao độ
-      this.playSfxTone(1046.5, 120, 'triangle', 0.50);
-      this.playSfxTone(1318.5, 180, 'triangle', 0.52, 90);
-    } else if (remainSec <= 5) {
-      // 5s -> 2s: nhịp cảnh báo kép dồn dập
-      this.playSfxTone(987.77, 95, 'triangle', 0.42);
-      this.playSfxTone(1174.66, 85, 'sine', 0.38, 70);
-    } else {
-      // 10s -> 6s: nhịp tích tắc đồng hồ trường quay rõ ràng
-      this.playSfxTone(783.99, 85, 'triangle', 0.35);
+  private stopCountdownSource() {
+    if (this.activeCountdownSource) {
+      try {
+        this.activeCountdownSource.stop();
+        this.activeCountdownSource.disconnect();
+      } catch {}
+      this.activeCountdownSource = null;
     }
   }
 
-  /** Hiệu ứng Trả lời đúng (Celebratory chime) */
+  private stopActiveSfxSources() {
+    this.stopCountdownSource();
+    for (const src of this.activeSfxSources) {
+      try {
+        src.stop();
+        src.disconnect();
+      } catch {}
+    }
+    this.activeSfxSources.clear();
+  }
+
+  private playBufferSfx(
+    key: 'correct' | 'honor' | 'countdown',
+    fallback: () => void,
+    offsetSec = 0,
+    durationSec?: number,
+    isCountdown = false,
+  ) {
+    const ctx = this.getContext();
+    if (!ctx || !this.sfxGain) return;
+
+    const startFromBuf = (buf: AudioBuffer) => {
+      if (!this.sfxGain) return;
+      try {
+        if (isCountdown) {
+          this.stopCountdownSource();
+        }
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(this.sfxGain);
+        const safeOffset = Math.max(0, Math.min(Math.max(0, buf.duration - 0.1), offsetSec));
+        if (durationSec !== undefined) {
+          src.start(0, safeOffset, Math.max(0.05, Math.min(durationSec, buf.duration - safeOffset)));
+        } else {
+          src.start(0, safeOffset);
+        }
+        if (isCountdown) {
+          this.activeCountdownSource = src;
+          src.onended = () => {
+            if (this.activeCountdownSource === src) this.activeCountdownSource = null;
+          };
+        } else {
+          this.activeSfxSources.add(src);
+          src.onended = () => {
+            this.activeSfxSources.delete(src);
+          };
+        }
+      } catch {
+        fallback();
+      }
+    };
+
+    const cached = this.audioBuffers[key];
+    if (cached) {
+      startFromBuf(cached);
+      return;
+    }
+    void this.loadAudioBuffer(key).then((buf) => {
+      if (buf) startFromBuf(buf);
+      else fallback();
+    });
+  }
+
+  /** Đếm ngược 10..1s (dùng file Điếm ngược.mp3 khớp mốc 30 - remainSec, dự phòng nốt tổng hợp) */
+  private playCountdownSfx(remainSec: number) {
+    if (remainSec < 1 || remainSec > 10) return;
+    const offsetSec = Math.max(0, 30 - remainSec);
+    // Ở giây cuối (1s) phát luôn chuông kết thúc ở mốc 30s của file (~2.3s); các giây khác phát đúng 1.05s
+    const durSec = remainSec <= 1 ? 2.35 : 1.05;
+    this.playBufferSfx(
+      'countdown',
+      () => {
+        if (remainSec <= 1) {
+          this.playSfxTone(1046.5, 120, 'triangle', 0.50);
+          this.playSfxTone(1318.5, 180, 'triangle', 0.52, 90);
+        } else if (remainSec <= 5) {
+          this.playSfxTone(987.77, 95, 'triangle', 0.42);
+          this.playSfxTone(1174.66, 85, 'sine', 0.38, 70);
+        } else {
+          this.playSfxTone(783.99, 85, 'triangle', 0.35);
+        }
+      },
+      offsetSec,
+      durSec,
+      true,
+    );
+  }
+
+  /** Hiệu ứng Trả lời đúng (dùng file Trả lời đúng.mp3, dự phòng arpeggio) */
   private playCorrectSfx() {
-    // Chuỗi 4 nốt arpeggio mừng chiến thắng: C5 -> E5 -> G5 -> C6
-    this.playSfxTone(523.25, 200, 'triangle', 0.40, 0);
-    this.playSfxTone(659.25, 200, 'triangle', 0.42, 75);
-    this.playSfxTone(783.99, 220, 'triangle', 0.44, 150);
-    this.playSfxTone(1046.5, 450, 'triangle', 0.52, 225);
-    this.playSfxTone(1318.5, 420, 'sine', 0.35, 235);
+    this.playBufferSfx('correct', () => {
+      this.playSfxTone(523.25, 200, 'triangle', 0.40, 0);
+      this.playSfxTone(659.25, 200, 'triangle', 0.42, 75);
+      this.playSfxTone(783.99, 220, 'triangle', 0.44, 150);
+      this.playSfxTone(1046.5, 450, 'triangle', 0.52, 225);
+      this.playSfxTone(1318.5, 420, 'sine', 0.35, 235);
+    });
   }
 
   /** Hiệu ứng Trả lời sai / Rớt ghế (Soft gameshow buzzer) */
@@ -666,19 +828,19 @@ class StageAudioManager {
     this.playSfxTone(1174.66, 320, 'sine', 0.32, 130);
   }
 
-  /** Hiệu ứng Vinh danh ghế nóng (Victory Fanfare) */
+  /** Hiệu ứng Vinh danh ghế nóng (dùng file Vinh Danh.mp3, dự phòng fanfare) */
   private playHonorFanfare() {
-    // Fanfare kèn đồng hoành tráng: G4 -> C5 -> E5 -> G5 -> Hợp âm C6 rực rỡ
-    this.playSfxTone(392.0, 140, 'triangle', 0.44, 0);
-    this.playSfxTone(523.25, 140, 'triangle', 0.46, 100);
-    this.playSfxTone(659.25, 150, 'triangle', 0.48, 200);
-    this.playSfxTone(783.99, 170, 'triangle', 0.52, 300);
+    this.playBufferSfx('honor', () => {
+      this.playSfxTone(392.0, 140, 'triangle', 0.44, 0);
+      this.playSfxTone(523.25, 140, 'triangle', 0.46, 100);
+      this.playSfxTone(659.25, 150, 'triangle', 0.48, 200);
+      this.playSfxTone(783.99, 170, 'triangle', 0.52, 300);
 
-    // Hợp âm vinh quang C Major
-    this.playSfxTone(523.25, 1400, 'triangle', 0.50, 420);
-    this.playSfxTone(783.99, 1400, 'triangle', 0.48, 420);
-    this.playSfxTone(1046.5, 1400, 'triangle', 0.58, 420);
-    this.playSfxTone(1318.5, 1100, 'sine', 0.38, 430);
+      this.playSfxTone(523.25, 1400, 'triangle', 0.50, 420);
+      this.playSfxTone(783.99, 1400, 'triangle', 0.48, 420);
+      this.playSfxTone(1046.5, 1400, 'triangle', 0.58, 420);
+      this.playSfxTone(1318.5, 1100, 'sine', 0.38, 430);
+    });
   }
 
   /**
@@ -707,17 +869,18 @@ class StageAudioManager {
 
     if (sound === 'lobby') {
       this.playBgmTrack('lobby', true);
-      this.previewTimer = setTimeout(() => this.stopPreview(), 6000);
+      this.previewTimer = setTimeout(() => this.stopPreview(), 8000);
     } else if (sound === 'thinking') {
       this.playBgmTrack('thinking', true);
-      this.previewTimer = setTimeout(() => this.stopPreview(), 6000);
+      this.previewTimer = setTimeout(() => this.stopPreview(), 8000);
     } else if (sound === 'countdown') {
-      this.playSfx('countdown', 5, true);
-      setTimeout(() => this.playSfx('countdown', 1, true), 700);
-      this.previewTimer = setTimeout(() => this.stopPreview(), 1400);
+      // Nghe thử 5 giây cuối + tiếng chuông hết giờ của Điếm ngược.mp3 (~6.5s)
+      this.playBufferSfx('countdown', () => this.playCountdownSfx(5), 25, 6.5, true);
+      this.previewTimer = setTimeout(() => this.stopPreview(), 6600);
     } else {
       this.playSfx(sound as SfxKind, undefined, true);
-      this.previewTimer = setTimeout(() => this.stopPreview(), 2000);
+      const durMs = sound === 'honor' ? 5300 : sound === 'correct' ? 4200 : 2000;
+      this.previewTimer = setTimeout(() => this.stopPreview(), durMs);
     }
   }
 
@@ -728,6 +891,7 @@ class StageAudioManager {
     }
     const wasBgmPreview = this.previewingSound === 'lobby' || this.previewingSound === 'thinking';
     this.previewingSound = null;
+    this.stopActiveSfxSources();
     if (wasBgmPreview) {
       this.stopBgmLoop();
       // Khôi phục ngay nhạc nền theo trạng thái game đang dừng (không đợi đồng bộ kế tiếp)
@@ -744,6 +908,7 @@ class StageAudioManager {
 
   stopAll() {
     this.stopPreview();
+    this.stopActiveSfxSources();
     this.stopBgmLoop();
   }
 }
