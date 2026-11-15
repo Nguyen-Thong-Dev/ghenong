@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
+import { GiftPanel } from './GiftPanel';
 import { StageCanvas, StageFrame, type StageState } from './StageView';
 import { audioManager, type AudioSettings } from './sound';
 
@@ -160,7 +161,7 @@ export function DashboardView() {
   const [customText, setCustomText] = useState<string>('');
   const [feedback, setFeedback] = useState<string>('');
   const [tiktokUser, setTiktokUser] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'seats' | 'players' | 'questions' | 'logs' | 'audio'>('logs');
+  const [activeTab, setActiveTab] = useState<'seats' | 'players' | 'questions' | 'logs' | 'audio' | 'gifts'>('logs');
   const [showSafeGuide, setShowSafeGuide] = useState<boolean>(false);
   const [modReason, setModReason] = useState<string>('Vi phạm nội quy phòng live');
 
@@ -735,6 +736,9 @@ export function DashboardView() {
             <TabBtn active={activeTab === 'audio'} onClick={() => setActiveTab('audio')} testId="tab-audio">
               🎚️ Âm thanh & Nhạc nền {audioSettings.masterMuted ? '(🔇 Tắt)' : ''}
             </TabBtn>
+            <TabBtn active={activeTab === 'gifts'} onClick={() => setActiveTab('gifts')} testId="tab-gifts">
+              🎁 Quà & Quyền lợi ({admin.gifts.config.length})
+            </TabBtn>
             <TabBtn active={activeTab === 'seats'} onClick={() => setActiveTab('seats')}>
               🪑 5 Ghế nóng & Hàng chờ ({admin.queue.length})
             </TabBtn>
@@ -1217,6 +1221,9 @@ export function DashboardView() {
               </div>
             </div>
           )}
+
+          {/* TAB: CẤU HÌNH QUÀ -> QUYỀN LỢI (chỉ người vận hành) */}
+          {activeTab === 'gifts' && <GiftPanel gifts={admin.gifts} callApi={callApi} />}
 
           {/* TAB 1: NHẬT KÝ LỆNH & CẤU HÌNH */}
           {activeTab === 'logs' && (

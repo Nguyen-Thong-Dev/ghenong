@@ -1,10 +1,49 @@
-/**
+﻿/**
  * Hệ thống Nhân vật & Ghế 2.5D đồng bộ của dự án GHẾ NÓNG
  * (Bản đầu: vector 2.5D tự dựng của dự án, hoàn toàn không dùng tài nguyên ảnh của repo tham khảo).
  * - Bảng màu chuẩn gameshow: Nền xanh đêm, Ghế nóng đỏ cam, Đèn vàng ấm, Điểm nhấn xanh ngọc.
  * - Đồng bộ tư thế nhân vật ngồi trong lòng ghế nóng, ghế chờ và ghế khán giả chữ U.
  */
 import React from 'react';
+
+/** Chỉ chấp nhận ảnh đại diện http(s); mọi giá trị khác dùng mặt hoạt hình mặc định. */
+export function safeAvatarUrl(raw?: string | null): string {
+  const u = String(raw ?? '').trim();
+  return /^https?:\/\//i.test(u) && u.length < 1000 ? u : '';
+}
+
+/** Tải thử ảnh; true khi hiển thị được. Nhớ kết quả để không tải lại nhiều lần. */
+const avatarOk = new Map<string, boolean>();
+function useAvatarLoaded(url: string): boolean {
+  const [ok, setOk] = React.useState<boolean>(() => avatarOk.get(url) === true);
+  React.useEffect(() => {
+    if (!url) {
+      setOk(false);
+      return;
+    }
+    const known = avatarOk.get(url);
+    if (known !== undefined) {
+      setOk(known);
+      return;
+    }
+    let alive = true;
+    const img = new Image();
+    img.referrerPolicy = 'no-referrer';
+    img.onload = () => {
+      avatarOk.set(url, true);
+      if (alive) setOk(true);
+    };
+    img.onerror = () => {
+      avatarOk.set(url, false);
+      if (alive) setOk(false);
+    };
+    img.src = url;
+    return () => {
+      alive = false;
+    };
+  }, [url]);
+  return ok;
+}
 
 export type CharacterPose = 'idle' | 'thinking' | 'answered' | 'correct' | 'wrong' | 'departing' | 'entering' | 'mc';
 export type HotSeatVisualState = 'empty' | 'inviting' | 'playing' | 'locked' | 'correct' | 'wrong';
@@ -135,13 +174,19 @@ export function Character25D({
   size = 58,
   speaking = false,
   showShadow = true,
+  avatar = '',
 }: {
   template?: number;
   pose?: CharacterPose;
   size?: number;
   speaking?: boolean;
   showShadow?: boolean;
+  avatar?: string;
 }) {
+  const avatarUrl = safeAvatarUrl(avatar);
+  const hasAvatar = useAvatarLoaded(avatarUrl) && pose !== 'mc';
+  const clipId = 'av' + React.useId().replace(/[^a-zA-Z0-9]/g, '');
+  const ringColor = pose === 'correct' ? '#fbbf24' : pose === 'wrong' || pose === 'departing' ? '#ef4444' : '#090d16';
   const pal = PALETTES[Math.abs(template) % PALETTES.length];
   const isMc = pose === 'mc';
   const shirtColor = isMc ? '#0e7490' : pal.shirt;
@@ -218,7 +263,28 @@ export function Character25D({
         </>
       )}
 
-      {/* Đầu & khuôn mặt hoạt hình 2.5D */}
+      {hasAvatar ? (
+        <>
+          <defs>
+            <clipPath id={clipId}>
+              <circle cx="40" cy="35" r="19" />
+            </clipPath>
+          </defs>
+          <circle cx="40" cy="35" r="20" fill="#0f172a" />
+          <image
+            href={avatarUrl}
+            x="21"
+            y="16"
+            width="38"
+            height="38"
+            preserveAspectRatio="xMidYMid slice"
+            clipPath={`url(#${clipId})`}
+            data-testid="avatar-image"
+          />
+          <circle cx="40" cy="35" r="19.4" fill="none" stroke={ringColor} strokeWidth="2.6" />
+        </>
+      ) : (
+        <>      {/* Đầu & khuôn mặt hoạt hình 2.5D */}
       <circle cx="40" cy="35" r="19" fill={`url(#charHead_${template})`} stroke="#090d16" strokeWidth="2.4" />
       {/* Má hồng nhẹ */}
       <ellipse cx="27" cy="39" rx="3.5" ry="2" fill="#fb7185" opacity="0.5" />
@@ -261,6 +327,8 @@ export function Character25D({
           )}
         </>
       )}
+        </>
+      )}
     </svg>
   );
 }
@@ -275,11 +343,13 @@ export function HotSeatUnit25D({
   visualState,
   template = 0,
   pose = 'idle',
+  avatar = '',
 }: {
   seatNumber: number;
   visualState: HotSeatVisualState;
   template?: number;
   pose?: CharacterPose;
+  avatar?: string;
 }) {
   const isEmpty = visualState === 'empty';
   const isCorrect = visualState === 'correct';
@@ -385,7 +455,7 @@ export function HotSeatUnit25D({
             opacity: isInviting ? 0.85 : 1,
           }}
         >
-          <Character25D template={template} pose={pose} size={62} showShadow={false} />
+          <Character25D template={template} pose={pose} size={62} showShadow={false} avatar={avatar} />
         </div>
       )}
 
@@ -442,11 +512,13 @@ export function WaitingSeatUnit25D({
   name,
   occupied,
   template = 0,
+  avatar = '',
 }: {
   pos: number;
   name: string;
   occupied: boolean;
   template?: number;
+  avatar?: string;
 }) {
   return (
     <div
@@ -510,7 +582,7 @@ export function WaitingSeatUnit25D({
         </svg>
         {occupied && (
           <div style={{ position: 'absolute', left: 1, top: 0, zIndex: 2 }}>
-            <Character25D template={template} pose="idle" size={28} showShadow={false} />
+            <Character25D template={template} pose="idle" size={28} showShadow={false} avatar={avatar} />
           </div>
         )}
       </div>
@@ -558,9 +630,11 @@ export function WaitingSeatUnit25D({
 export function AudienceSeatUnit25D({
   occupied,
   template = 0,
+  avatar = '',
 }: {
   occupied: boolean;
   template?: number;
+  avatar?: string;
 }) {
   return (
     <div style={{ position: 'relative', width: 32, height: 36 }}>
@@ -589,9 +663,10 @@ export function AudienceSeatUnit25D({
       </svg>
       {occupied && (
         <div style={{ position: 'absolute', left: 1, top: -2, zIndex: 2 }}>
-          <Character25D template={template} pose="idle" size={30} showShadow={false} />
+          <Character25D template={template} pose="idle" size={30} showShadow={false} avatar={avatar} />
         </div>
       )}
     </div>
   );
 }
+

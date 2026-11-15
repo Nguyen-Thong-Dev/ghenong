@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Bộ kết nối TikTok LIVE và tự kết nối lại.
  * Tận dụng có chọn lọc từ server.ts của lop-hoc-chu (MIT License, workaipvlinh-byte).
  * Điều chỉnh cho Ghế Nóng:
@@ -25,7 +25,12 @@ const stableUserIdOf = (data: any): string => {
   return String(id).trim();
 };
 const nickOf = (data: any): string => data?.user?.nickname || data?.nickname || data?.user?.uniqueId || 'Người xem';
-const avatarOf = (data: any): string => data?.user?.avatarThumb?.urlList?.[0] || '';
+const avatarOf = (data: any): string => {
+  // Ưu tiên URL ảnh trình duyệt đọc được (bỏ .heic); chỉ nhận http(s)
+  const list: unknown[] = [...(data?.user?.avatarThumb?.urlList ?? []), ...(data?.user?.avatarMedium?.urlList ?? [])];
+  const urls = list.filter((u): u is string => typeof u === 'string' && /^https?:\/\//i.test(u));
+  return urls.find((u) => !/\.heic(\?|$)/i.test(u)) ?? urls[0] ?? '';
+};
 let fallbackSeq = 0;
 const eventIdOf = (prefix: string, data: any): string => {
   const msgId = data?.common?.msgId || data?.msgId;

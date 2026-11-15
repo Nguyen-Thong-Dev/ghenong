@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Kiểm tra tự động Giao diện Sân khấu 2.5D, Nhân vật MC Áo Trắng 8 Tư Thế & Máy chủ (End-to-End bằng Playwright + Microsoft Edge):
  * - Kiểm tra cả kích thước gốc 720 × 1280 (9:16) và kích thước hiển thị điện thoại 360 × 640.
  * - Xác minh ánh xạ đầy đủ 8 tư thế MC áo trắng (01..08):
@@ -40,6 +40,7 @@ const serverProc = spawn(
       DATA_DIR: tmpDir,
       NODE_ENV: 'production',
       E2E_TEST: '1',
+      DISABLE_SIM: '0',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   },

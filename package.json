@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "ghenonggame",
   "private": true,
   "version": "0.1.0",
@@ -14,7 +14,8 @@
     "lint": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "test:ui": "node tests/ui/e2e.mjs",
-    "test:audio": "node tests/ui/audio.e2e.mjs"
+    "test:audio": "node tests/ui/audio.e2e.mjs",
+    "test:avatar": "node tests/ui/avatar.e2e.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^6.1.1",

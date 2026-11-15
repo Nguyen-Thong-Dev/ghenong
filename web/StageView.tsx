@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+﻿import React, { useEffect, useRef, useState } from 'react';
 import {
   AudienceSeatUnit25D,
   Character25D,
@@ -42,6 +42,7 @@ export interface StageState {
     departed: {
       userId: string;
       name: string;
+      avatar?: string;
       template: number;
       reason: string;
       result?: 'wrong' | 'none';
@@ -49,18 +50,19 @@ export interface StageState {
     invite: {
       userId: string;
       name: string;
+      avatar?: string;
       template: number;
       expiresAt: number;
     } | null;
   }[];
-  waiting: { pos: number; userId: string; name: string; template: number }[];
+  waiting: { pos: number; userId: string; name: string; avatar?: string; template: number }[];
   registeredMore: number;
-  audience: { userId: string; name: string; template: number }[];
+  audience: { userId: string; name: string; avatar?: string; template: number }[];
   audienceTotal: number;
   leaderboard: { rank: number; userId: string; nickname: string; points: number }[];
   honor: {
     kind: 'milestone' | 'keep' | 'fresh' | 'none';
-    entries: { userId: string; nickname: string; level: number; template: number; tags: ('milestone' | 'record')[] }[];
+    entries: { userId: string; nickname: string; avatar?: string; level: number; template: number; tags: ('milestone' | 'record')[] }[];
     keepCount: number;
     allFloor: boolean;
     correctSeats: number[];
@@ -1643,6 +1645,7 @@ export function StageCanvas({
                 visualState={visualState}
                 template={occ?.template ?? dep?.template ?? inv?.template ?? s.seat}
                 pose={pose}
+                avatar={occ?.avatar ?? dep?.avatar ?? inv?.avatar ?? ''}
               />
 
               {/* Bảng tên, Điểm và Cấp bậc ngay dưới chân ghế nóng */}
@@ -1780,6 +1783,7 @@ export function StageCanvas({
                 name={w ? w.name : 'Trống'}
                 occupied={Boolean(w)}
                 template={w?.template ?? pos}
+                avatar={w?.avatar ?? ''}
               />
             );
           })}
@@ -1803,7 +1807,7 @@ export function StageCanvas({
                 transform: 'translate(-50%, -50%)',
               }}
             >
-              <AudienceSeatUnit25D occupied={Boolean(aud)} template={aud?.template ?? idx} />
+              <AudienceSeatUnit25D occupied={Boolean(aud)} template={aud?.template ?? idx} avatar={aud?.avatar ?? ''} />
             </div>
           );
         })}
@@ -1880,7 +1884,7 @@ export function StageCanvas({
                       boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
                     }}
                   >
-                    <Character25D template={e.template} pose="correct" size={42} showShadow={false} />
+                    <Character25D template={e.template} pose="correct" size={42} showShadow={false} avatar={e.avatar ?? ''} />
                     <div style={{ textAlign: 'left' }}>
                       <div style={{ fontSize: 14, fontWeight: 900, color: '#ffffff' }}>{e.nickname}</div>
                       <div style={{ fontSize: 12, fontWeight: 800, color: '#fde047' }}>

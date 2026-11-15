@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Máy chủ chính của GHẾ NÓNG (Node.js + Express + TypeScript + SQLite).
  * - Chỉ lắng nghe trên 127.0.0.1 (cục bộ), không mở bảng điều khiển ra internet.
  * - Nguồn trạng thái chính nằm hoàn toàn trên máy chủ (GameEngine + Store SQLite).
@@ -347,7 +347,7 @@ if (SIM_ENABLED) {
       type: 'chat',
       userId: String(userId ?? ''),
       nickname: nickname ?? profile?.nickname ?? `Khách ${userId}`,
-      avatar: profile?.avatar ?? '',
+      avatar: profile?.avatar || (typeof req.body?.avatar === 'string' ? req.body.avatar : ''),
       text: String(text ?? ''),
       receivedAt,
     };

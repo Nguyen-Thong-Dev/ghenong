@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Kiểm tra tự động toàn diện Hệ thống Âm thanh cho Ghế Nóng (Audio E2E):
  * 1. Khởi động máy chủ độc lập trên cổng 3208.
  * 2. Xác minh toàn bộ chu kỳ game:
@@ -39,6 +39,7 @@ const serverProc = spawn(
       DATA_DIR: tmpDir,
       NODE_ENV: 'production',
       E2E_TEST: '1',
+      DISABLE_SIM: '0',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   },
