@@ -462,9 +462,9 @@ async function start() {
     const vite = await createServer({
       configFile: path.join(ROOT_DIR, 'vite.config.ts'),
       server:
-        process.env.LIVE_MODE === '1'
-          ? { middlewareMode: true, hmr: false, ws: false }
-          : { middlewareMode: true, hmr: { port: 24688 } },
+        process.env.DEV_HMR === '1'
+          ? { middlewareMode: true, hmr: { port: 24688 } }
+          : { middlewareMode: true, hmr: false, ws: false },
       appType: 'spa',
     });
     app.use(vite.middlewares);
