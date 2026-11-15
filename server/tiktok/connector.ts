@@ -24,7 +24,7 @@ const stableUserIdOf = (data: any): string => {
   const id = data?.user?.userId || data?.userId || data?.user?.uniqueId || data?.uniqueId || '';
   return String(id).trim();
 };
-const nickOf = (data: any): string => data?.user?.nickname || data?.nickname || data?.user?.uniqueId || 'Người xem';
+const nickOf = (data: any): string => data?.user?.nickname || data?.nickname || data?.user?.uniqueId || '';
 const avatarOf = (data: any): string => {
   // Ưu tiên URL ảnh trình duyệt đọc được (bỏ .heic); chỉ nhận http(s)
   const list: unknown[] = [...(data?.user?.avatarThumb?.urlList ?? []), ...(data?.user?.avatarMedium?.urlList ?? [])];

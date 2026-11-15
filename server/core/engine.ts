@@ -1,4 +1,4 @@
-/**
+﻿/**
  * LÕI LUẬT GHẾ NÓNG (Bộ luật v1.0). Máy chủ là nơi duy nhất quyết định đồng hồ, điểm, thứ tự, cấp, kết quả (§16).
  *
  * - Không phụ thuộc React / Express / TikTok. Nhận sự kiện đã chuẩn hóa (InboundEvent) và lệnh quản trị.
@@ -554,13 +554,33 @@ export class GameEngine {
       return { player: p, created: true };
     }
     // §2: tên đổi không làm mất hồ sơ
-    if (p.nickname !== nickname || (ev.avatar && ev.avatar !== p.avatar)) {
-      p.nickname = nickname;
-      if (ev.avatar) p.avatar = ev.avatar;
-      this.dirtyPlayers.add(id);
-    }
+    this.syncProfile(p, ev);
     p.lastActiveAt = ev.receivedAt;
     return { player: p, created: false };
+  }
+
+  /**
+   * Đồng bộ TÊN + AVATAR của người xem theo sự kiện mới nhất (cùng lúc, cùng một sự kiện).
+   * Không ghi đè bằng giá trị rỗng/dự phòng: sự kiện thiếu tên hoặc thiếu ảnh thì giữ giá trị đang có.
+   * Trả về true nếu có thay đổi.
+   */
+  private syncProfile(p: Player, ev: InboundEvent): boolean {
+    let changed = false;
+    const rawName = String(ev.nickname ?? '').trim();
+    if (rawName) {
+      const nickname = safeDisplayName(rawName);
+      if (nickname !== p.nickname) {
+        p.nickname = nickname;
+        changed = true;
+      }
+    }
+    const avatar = String(ev.avatar ?? '').trim();
+    if (avatar && avatar !== p.avatar) {
+      p.avatar = avatar;
+      changed = true;
+    }
+    if (changed) this.dirtyPlayers.add(p.userId);
+    return changed;
   }
 
   seatOf(userId: string): number {
@@ -665,6 +685,11 @@ export class GameEngine {
       return { accepted: false, reason: 'Thiếu định danh tài khoản' };
     }
     const cmd = parseCommand(text);
+    // Mọi bình luận (kể cả không phải lệnh) đều làm mới tên + avatar của người ĐÃ có hồ sơ, để sân khấu luôn đồng bộ
+    if (ev.type === 'chat') {
+      const known = this.players.get(ev.userId);
+      if (known && this.syncProfile(known, ev)) this.commit();
+    }
     if (!cmd) {
       this.addLog({ kind: 'command', userId: ev.userId, nickname: ev.nickname, text, accepted: false, message: 'Không phải lệnh (bình luận thường, không tính). ' + SYNTAX_HINT });
       this.changed();

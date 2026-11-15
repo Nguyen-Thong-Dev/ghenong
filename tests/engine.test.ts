@@ -885,3 +885,44 @@ test('T29: Quà "khiên bảo vệ" — trả lời sai vẫn giữ ghế, khôn
   assert.equal(h.engine.state.scores['sim_01']?.sessionPoints ?? 0, 0);
 });
 
+
+test('T30: Tên + avatar người xem luôn đồng bộ — làm mới ở mọi bình luận (kể cả không phải lệnh), không bị ghi đè bằng giá trị rỗng', () => {
+  const h = makeHarness();
+  const send = (nickname: string | undefined, avatar: string | undefined, text: string) =>
+    h.engine.handleInbound({
+      source: 'sim',
+      eventId: `sync_${Math.random()}`,
+      type: 'chat',
+      userId: 'user_sync',
+      nickname,
+      avatar,
+      text,
+      receivedAt: h.engine.now(),
+    } as InboundEvent);
+  send('Tên Cũ', 'https://cdn.test/a1.jpg', 'vào');
+  const card = () => h.engine.publicView().waiting.concat(h.engine.publicView().audience as never).find((x) => x.userId === 'user_sync');
+  assert.equal(card()?.name, 'Tên Cũ');
+  assert.equal(card()?.avatar, 'https://cdn.test/a1.jpg');
+  // Bình luận thường (không phải lệnh) với tên + ảnh mới -> cả hai cập nhật cùng lúc
+  send('Tên Mới', 'https://cdn.test/a2.jpg', 'hello mọi người');
+  assert.equal(card()?.name, 'Tên Mới');
+  assert.equal(card()?.avatar, 'https://cdn.test/a2.jpg');
+  // Sự kiện thiếu tên/ảnh không được xóa hồ sơ đang có
+  send(undefined, undefined, 'bình luận thiếu hồ sơ');
+  send('', '', 'bình luận rỗng hồ sơ');
+  assert.equal(card()?.name, 'Tên Mới');
+  assert.equal(card()?.avatar, 'https://cdn.test/a2.jpg');
+  // Quà cũng làm mới
+  h.engine.handleInbound({
+    source: 'sim',
+    eventId: 'sync_gift_1',
+    type: 'gift',
+    userId: 'user_sync',
+    nickname: 'Tên Quà',
+    avatar: 'https://cdn.test/a3.jpg',
+    gift: { name: 'Hoa hồng', count: 1, diamonds: 1 },
+    receivedAt: h.engine.now(),
+  } as InboundEvent);
+  assert.equal(card()?.name, 'Tên Quà');
+  assert.equal(card()?.avatar, 'https://cdn.test/a3.jpg');
+});
