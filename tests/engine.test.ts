@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Bộ kiểm tra tự động cho Lõi Luật Ghế Nóng v1.0 (T01–T18 và các tình huống biên).
  * Chạy bằng: npm test
  */
@@ -813,3 +813,75 @@ test('T25: Chơi dài hạn với ngân hàng 300 câu — chọn câu 25 lần 
   // Không lặp trong vòng đầu: 25 ID câu hỏi khác nhau (bank 300 đủ lớn)
   assert.equal(new Set(seenOrder).size, 25);
 });
+
+// ---------- Quà tặng có cấu hình quyền lợi (T26–T29) ----------
+function giftWithId(h: ReturnType<typeof makeHarness>, userId: string, giftId: string, count = 1, eventId?: string) {
+  const ev: InboundEvent = {
+    source: 'sim',
+    eventId: eventId ?? `gid_${giftId}_${userId}_${Math.random()}`,
+    type: 'gift',
+    userId,
+    nickname: `User ${userId}`,
+    gift: { name: `Quà ${giftId}`, count, diamonds: 1, giftId },
+    receivedAt: h.engine.now(),
+  };
+  return h.engine.handleInbound(ev);
+}
+function cfgGift(h: ReturnType<typeof makeHarness>, giftId: string, action: string, unitsPerPerk = 1) {
+  const r = h.engine.upsertGiftConfig('admin', { giftId, name: `Quà ${giftId}`, action, unitsPerPerk, enabled: true });
+  assert.equal(r.accepted, true);
+}
+
+test('T26: Quà chưa cấu hình (dù có Gift ID) chỉ cảm ơn — không đổi điểm/ghế/hàng chờ; sự kiện trùng bị bỏ qua', () => {
+  const h = makeHarness();
+  seatPlayersAndOpen(h, ['sim_01']);
+  h.chat('sim_02', 'chờ');
+  const r = giftWithId(h, 'sim_02', '5655', 5, 'dup_1');
+  assert.equal(r.accepted, true);
+  assert.equal(giftWithId(h, 'sim_02', '5655', 5, 'dup_1').accepted, false);
+  assert.equal(h.engine.state.queue.length, 1);
+  assert.equal(h.engine.state.queue[0].priorityAt ?? 0, 0);
+  assert.equal(h.engine.state.seats.filter(Boolean).length, 1);
+  assert.equal(h.engine.state.scores['sim_02']?.sessionPoints ?? 0, 0);
+});
+
+test('T27: Quà "vào ngay ghế chờ" chèn người ưu tiên trước hàng thường; tích đủ unitsPerPerk mới nhận quyền', () => {
+  const h = makeHarness();
+  seatPlayersAndOpen(h, ['sim_01']);
+  h.chat('sim_02', 'chờ');
+  h.chat('sim_03', 'chờ');
+  cfgGift(h, 'G1', 'skip_queue', 3);
+  giftWithId(h, 'sim_04', 'G1', 2);
+  assert.equal(h.engine.state.queue.some((q) => q.userId === 'sim_04'), false, 'mới tích 2/3 chưa có quyền');
+  giftWithId(h, 'sim_04', 'G1', 1);
+  assert.equal(h.engine.state.queue[0].userId, 'sim_04', 'đủ 3/3 -> lên đầu hàng chờ');
+  assert.equal(h.engine.state.queue.length, 3);
+  assert.equal(h.engine.state.scores['sim_04']?.sessionPoints ?? 0, 0);
+});
+
+test('T28: Quà "cướp ghế" giữa câu thì chờ ranh giới câu; người thắng chơi bằng điểm/cấp của chính mình, không cộng điểm', () => {
+  const h = makeHarness();
+  seatPlayersAndOpen(h, ['sim_01', 'sim_02']);
+  cfgGift(h, 'G2', 'steal_seat', 1);
+  giftWithId(h, 'sim_09', 'G2', 1);
+  assert.equal(h.engine.state.phase, 'OPEN');
+  assert.equal(h.engine.state.seats.some((t) => t?.userId === 'sim_09'), false, 'giữa câu chưa được cướp');
+  h.advance(30_000 + 8_000 + 5_000 + 7_000);
+  assert.equal(h.engine.state.scores['sim_09']?.sessionPoints ?? 0, 0);
+  assert.ok(h.engine.state.seats.some((t) => t?.userId === 'sim_09'), 'sau ranh giới câu người cướp ghế phải ngồi ghế');
+});
+
+test('T29: Quà "khiên bảo vệ" — trả lời sai vẫn giữ ghế, không cộng điểm; chỉ dùng cho 1 câu', () => {
+  const h = makeHarness();
+  seatPlayersAndOpen(h, ['sim_01']);
+  cfgGift(h, 'G3', 'protect_answer', 1);
+  giftWithId(h, 'sim_01', 'G3', 1);
+  const cur = h.engine.state.current!;
+  const q = h.engine.questionById(cur.questionId)!;
+  const wrong = (['A', 'B', 'C', 'D'] as const).find((c) => c !== q.correct)!;
+  h.chat('sim_01', `${cur.code}${wrong}`);
+  h.advance(30_000 + 1_000);
+  assert.ok(h.engine.state.seats.some((t) => t?.userId === 'sim_01'), 'có khiên -> vẫn giữ ghế dù sai');
+  assert.equal(h.engine.state.scores['sim_01']?.sessionPoints ?? 0, 0);
+});
+
