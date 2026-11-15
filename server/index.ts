@@ -5,8 +5,8 @@
  * - Trang sân khấu (?view=stage) chỉ nhận publicView() (không có đáp án đúng trước khi chốt).
  * - Các API giả lập (/api/sim/*) tách riêng, có thể tắt hoàn toàn bằng DISABLE_SIM=1 khi vận hành thật.
  */
+import 'dotenv/config';
 import express from 'express';
-import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -19,8 +19,6 @@ import { TikTokBridge } from './tiktok/connector';
 import { synthesizeSpeech } from './tts/service';
 import { AutoSimController } from './sim/autoBot';
 import type { InboundEvent } from './core/types';
-
-dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, '..');

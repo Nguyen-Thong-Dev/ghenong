@@ -5,8 +5,8 @@
  */
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 
-const TTS_VOICE = process.env.TTS_VOICE || 'vi-VN-HoaiMyNeural';
-const TTS_PITCH = process.env.TTS_PITCH || '+4%';
+const getTtsVoice = () => (process.env.TTS_VOICE || 'vi-VN-HoaiMyNeural').trim();
+const getTtsPitch = () => (process.env.TTS_PITCH || '+4%').trim();
 
 const escapeXml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -30,13 +30,13 @@ let edgeChain: Promise<unknown> = Promise.resolve();
 const edgeInflight = new Map<string, Promise<Buffer>>();
 const ttsCache = new Map<string, Buffer>();
 
-async function edgeTtsOnce(text: string, rate: number, voiceName = TTS_VOICE): Promise<Buffer> {
+async function edgeTtsOnce(text: string, rate: number, voiceName = getTtsVoice()): Promise<Buffer> {
   const tts = new MsEdgeTTS();
   try {
     await tts.setMetadata(voiceName, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
     const { audioStream } = tts.toStream(escapeXml(text), {
       rate: `${rate >= 1 ? '+' : ''}${Math.round((rate - 1) * 100)}%`,
-      pitch: TTS_PITCH,
+      pitch: getTtsPitch(),
       volume: '+0%',
     });
     const chunks: Buffer[] = [];
@@ -54,7 +54,7 @@ async function edgeTtsOnce(text: string, rate: number, voiceName = TTS_VOICE): P
   }
 }
 
-function edgeTts(text: string, rate: number, voiceName = TTS_VOICE): Promise<Buffer> {
+function edgeTts(text: string, rate: number, voiceName = getTtsVoice()): Promise<Buffer> {
   const key = `${voiceName}|${rate}|${text}`;
   const running = edgeInflight.get(key);
   if (running) return running;
@@ -91,13 +91,15 @@ async function googleTts(text: string): Promise<Buffer> {
 export async function synthesizeSpeech(rawText: string, rate = 1.05): Promise<{ audio: Buffer; fallback: boolean }> {
   const text = String(rawText || '').trim().slice(0, 600);
   if (!text) throw new Error('Thiếu nội dung đọc');
+  const voice = getTtsVoice();
+  const pitch = getTtsPitch();
   const cleanRate = Math.min(1.4, Math.max(0.7, Number(rate) || 1.05));
-  const key = `${TTS_VOICE}|${cleanRate}|${text}`;
+  const key = `${voice}|${pitch}|${cleanRate}|${text}`;
   const cached = ttsCache.get(key);
   if (cached) return { audio: cached, fallback: false };
 
   try {
-    const audio = await edgeTts(text, cleanRate, TTS_VOICE);
+    const audio = await edgeTts(text, cleanRate, voice);
     ttsCache.set(key, audio);
     if (ttsCache.size > 150) ttsCache.delete(ttsCache.keys().next().value!);
     return { audio, fallback: false };
