@@ -173,6 +173,10 @@ function broadcastAll() {
 const autoSim = new AutoSimController(engine, () => broadcastAll(), SIM_ENABLED && process.env.E2E_TEST !== '1');
 engine.onChange(() => broadcastAll());
 tiktok.setSimMode(SIM_ENABLED);
+const savedSignKey = store.getMeta('tiktok_sign_api_key');
+if (savedSignKey && !process.env.TIKTOK_SIGN_API_KEY && !process.env.SIGN_API_KEY && !process.env.EULER_API_KEY) {
+  tiktok.setSignApiKey(savedSignKey);
+}
 
 // Nhịp đồng hồ máy chủ 200ms
 let lastPhase = engine.state.phase;
@@ -317,8 +321,23 @@ app.get('/api/admin/logs/export', requireAdmin, (_req, res) => {
 });
 
 // Kết nối TikTok LIVE
+app.post('/api/admin/tiktok/sign-key', requireAdmin, (req, res) => {
+  const key = String(req.body?.signApiKey ?? '').trim();
+  store.setMeta('tiktok_sign_api_key', key);
+  tiktok.setSignApiKey(key);
+  res.json({
+    accepted: true,
+    reason: key ? 'Đã lưu EulerStream API Key' : 'Đã xóa EulerStream API Key',
+  });
+});
+
 app.post('/api/admin/tiktok/connect', requireAdmin, async (req, res) => {
   try {
+    if (typeof req.body?.signApiKey === 'string' && req.body.signApiKey.trim()) {
+      const key = req.body.signApiKey.trim();
+      store.setMeta('tiktok_sign_api_key', key);
+      tiktok.setSignApiKey(key);
+    }
     const r = await tiktok.connect(req.body?.username || '');
     res.json({ accepted: true, reason: `Đã kết nối phòng ${r.roomId || ''}` });
   } catch (err) {

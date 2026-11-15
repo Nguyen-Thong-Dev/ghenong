@@ -18,6 +18,7 @@ export interface TikTokStats {
   totalLikes: number;
   error: string;
   simMode: boolean;
+  hasSignKey?: boolean;
 }
 
 const stableUserIdOf = (data: any): string => {
@@ -52,12 +53,23 @@ export class TikTokBridge {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectTries = 0;
   private wantUser = '';
+  private signApiKey = String(
+    process.env.TIKTOK_SIGN_API_KEY || process.env.SIGN_API_KEY || process.env.EULER_API_KEY || '',
+  ).trim();
 
   constructor(
     private onEvent: (ev: InboundEvent) => void,
     private onHealth: (healthy: boolean, why?: string) => void,
     private onStatsChange: (stats: TikTokStats) => void,
-  ) {}
+  ) {
+    this.stats.hasSignKey = Boolean(this.signApiKey);
+  }
+
+  setSignApiKey(key: string) {
+    this.signApiKey = String(key || '').trim();
+    this.stats.hasSignKey = Boolean(this.signApiKey);
+    this.onStatsChange(this.stats);
+  }
 
   setSimMode(enabled: boolean) {
     this.stats.simMode = enabled;
@@ -135,6 +147,7 @@ export class TikTokBridge {
     const conn = new TikTokLiveConnection(cleanUser, {
       processInitialData: true,
       enableExtendedGiftInfo: false,
+      ...(this.signApiKey ? { signApiKey: this.signApiKey } : {}),
     });
 
     conn.on(ControlEvent.CONNECTED, (state: { roomId?: string }) => {

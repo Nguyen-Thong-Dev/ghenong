@@ -140,6 +140,7 @@ interface AdminPayload {
     totalLikes: number;
     error: string;
     simMode: boolean;
+    hasSignKey?: boolean;
   };
   simEnabled: boolean;
   simProfiles: SimProfile[];
@@ -161,6 +162,7 @@ export function DashboardView() {
   const [customText, setCustomText] = useState<string>('');
   const [feedback, setFeedback] = useState<string>('');
   const [tiktokUser, setTiktokUser] = useState<string>('');
+  const [signKeyInput, setSignKeyInput] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'seats' | 'players' | 'questions' | 'logs' | 'audio' | 'gifts'>('logs');
   const [showSafeGuide, setShowSafeGuide] = useState<boolean>(false);
   const [modReason, setModReason] = useState<string>('Vi phạm nội quy phòng live');
@@ -421,29 +423,72 @@ export function DashboardView() {
           </div>
 
           {/* Kết nối TikTok LIVE */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <input
-              value={tiktokUser}
-              onChange={(e) => setTiktokUser(e.target.value)}
-              placeholder="username TikTok (khi lên live)"
-              style={{
-                background: '#1e293b',
-                border: '1px solid #334155',
-                color: '#f8fafc',
-                borderRadius: 8,
-                padding: '6px 10px',
-                fontSize: 12.5,
-                width: 190,
-              }}
-            />
-            <Btn onClick={() => callApi('/api/admin/tiktok/connect', { username: tiktokUser })} disabled={!tiktokUser.trim()}>
-              Kết nối TikTok
-            </Btn>
-            {admin.live.isConnected && (
-              <Btn tone="danger" onClick={() => callApi('/api/admin/tiktok/disconnect')}>
-                Ngắt
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <input
+                value={tiktokUser}
+                onChange={(e) => setTiktokUser(e.target.value)}
+                placeholder="username TikTok (khi lên live)"
+                style={{
+                  background: '#1e293b',
+                  border: '1px solid #334155',
+                  color: '#f8fafc',
+                  borderRadius: 8,
+                  padding: '6px 10px',
+                  fontSize: 12.5,
+                  width: 190,
+                }}
+              />
+              <input
+                type="password"
+                value={signKeyInput}
+                onChange={(e) => setSignKeyInput(e.target.value)}
+                placeholder={admin.live.hasSignKey ? '🔑 Đã lưu EulerStream Key (nhập mới để đổi)' : 'EulerStream API Key (eulerstream.com)'}
+                title="Tạo key miễn phí tại https://www.eulerstream.com khi gặp lỗi 401"
+                style={{
+                  background: '#1e293b',
+                  border: `1px solid ${admin.live.hasSignKey ? '#16a34a' : '#334155'}`,
+                  color: '#f8fafc',
+                  borderRadius: 8,
+                  padding: '6px 10px',
+                  fontSize: 12,
+                  width: 215,
+                }}
+              />
+              {signKeyInput.trim() && (
+                <Btn
+                  tone="accent"
+                  onClick={async () => {
+                    const r = await callApi('/api/admin/tiktok/sign-key', { signApiKey: signKeyInput.trim() });
+                    if (r?.accepted) setSignKeyInput('');
+                  }}
+                >
+                  Lưu Key
+                </Btn>
+              )}
+              <Btn
+                onClick={async () => {
+                  const r = await callApi('/api/admin/tiktok/connect', {
+                    username: tiktokUser,
+                    signApiKey: signKeyInput.trim() || undefined,
+                  });
+                  if (r?.accepted && signKeyInput.trim()) setSignKeyInput('');
+                }}
+                disabled={!tiktokUser.trim()}
+              >
+                Kết nối TikTok
               </Btn>
-            )}
+              {admin.live.isConnected && (
+                <Btn tone="danger" onClick={() => callApi('/api/admin/tiktok/disconnect')}>
+                  Ngắt
+                </Btn>
+              )}
+            </div>
+            <div style={{ fontSize: 11, color: admin.live.hasSignKey ? '#34d399' : '#94a3b8' }}>
+              {admin.live.hasSignKey
+                ? '🔑 Đã có EulerStream API Key'
+                : 'Nếu báo lỗi 401: tạo key miễn phí tại eulerstream.com rồi dán vào ô Key'}
+            </div>
           </div>
         </div>
 
