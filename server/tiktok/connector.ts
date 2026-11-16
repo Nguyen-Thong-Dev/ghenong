@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Bộ kết nối TikTok LIVE và tự kết nối lại.
  * Tận dụng có chọn lọc từ server.ts của lop-hoc-chu (MIT License, workaipvlinh-byte).
  * Điều chỉnh cho Ghế Nóng:
@@ -21,9 +21,20 @@ export interface TikTokStats {
   hasSignKey?: boolean;
 }
 
+let identityDebugLogged = 0;
 const stableUserIdOf = (data: any): string => {
-  const id = data?.user?.userId || data?.userId || data?.user?.uniqueId || data?.uniqueId || '';
-  return String(id).trim();
+  const u = data?.user ?? {};
+  const id =
+    u.userId || u.idStr || u.id || data?.userId || u.secUid || u.uniqueId || u.displayId || data?.uniqueId || '';
+  const s = String(id).trim();
+  if (s && s !== '0') return s;
+  // Dự phòng cuối: TikTok đôi khi ẩn ID, chỉ còn biệt danh -> dùng biệt danh làm khóa tạm
+  const nick = String(u.nickname || data?.nickname || '').trim();
+  if (identityDebugLogged < 3) {
+    identityDebugLogged++;
+    console.warn('[TikTok] Sự kiện không có ID, các trường user nhận được:', Object.keys(u).join(','), '| nickname:', nick);
+  }
+  return nick ? 'nick:' + nick : '';
 };
 const nickOf = (data: any): string => data?.user?.nickname || data?.nickname || data?.user?.uniqueId || '';
 const avatarOf = (data: any): string => {

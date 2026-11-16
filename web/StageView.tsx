@@ -229,10 +229,11 @@ export function StageFrame({
         style={{
           width: STAGE_W,
           height: STAGE_H,
-          transform: `scale(${scale})`,
-          transformOrigin: 'top left',
+          zoom: scale,
           position: 'relative',
           overflow: 'hidden',
+          WebkitFontSmoothing: 'antialiased',
+          textRendering: 'geometricPrecision',
         }}
       >
         {children}

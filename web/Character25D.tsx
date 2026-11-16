@@ -145,7 +145,7 @@ export function McWhiteHost25D({
               height,
               display: 'block',
               opacity: isActive ? 1 : 0,
-              transform: isActive ? 'scale(1)' : 'scale(0.988)',
+              transform: isActive ? 'none' : 'scale(0.988)',
               filter: 'drop-shadow(0 8px 14px rgba(0, 0, 0, 0.65))',
               pointerEvents: 'none',
               userSelect: 'none',
